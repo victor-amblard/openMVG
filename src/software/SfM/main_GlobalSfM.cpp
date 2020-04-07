@@ -51,7 +51,7 @@ int main(int argc, char **argv)
   std::string sOutDir = "";
   int iRotationAveragingMethod = int (ROTATION_AVERAGING_L2);
   int iTranslationAveragingMethod = int (TRANSLATION_AVERAGING_SOFTL1);
-  std::string sIntrinsic_refinement_options = "ADJUST_ALL";
+  std::string sIntrinsic_refinement_options = "NONE";
   bool b_use_motion_priors = false;
 
   cmd.add( make_option('i', sSfM_Data_Filename, "input_file") );
@@ -122,7 +122,7 @@ int main(int argc, char **argv)
 
   // Load input SfM_Data scene
   SfM_Data sfm_data;
-  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS))) {
+  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS), true)) {
     std::cerr << std::endl
       << "The input SfM_Data file \""<< sSfM_Data_Filename << "\" cannot be read." << std::endl;
     return EXIT_FAILURE;

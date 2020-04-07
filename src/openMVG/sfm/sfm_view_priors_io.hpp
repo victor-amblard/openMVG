@@ -49,20 +49,41 @@ void openMVG::sfm::ViewPriors::save( Archive & ar ) const
 template <class Archive>
 void openMVG::sfm::ViewPriors::load( Archive & ar )
 {
-  View::load(ar);
+
+  // View::load(ar);
+  // std::cout << "Loading view prior!" << std::endl;
+  // ar(cereal::base_class<View>(this));
+    // ar( cereal::make_nvp( "use_pose_center_prior", data ) );
 
   // Pose center prior
+  // std::shared_ptr<View> v = std::make_shared<View>();
+  // ar(cereal::base_class<View>(this), this);
+
   try
   {
-    ar( cereal::make_nvp( "use_pose_center_prior", b_use_pose_center_ ) );
+      std::string local_path = s_Img_path;
+  std::string filename = s_Img_path;
+  bool usePosePrior;
+     ar(cereal::make_nvp("local_path", local_path),
+     cereal::make_nvp("filename", filename),
+     cereal::make_nvp("width", ui_width),
+     cereal::make_nvp("height", ui_height),
+     cereal::make_nvp("id_view", id_view),
+     cereal::make_nvp("id_intrinsic", id_intrinsic),
+     cereal::make_nvp("id_pose", id_pose));
+     ar(cereal::make_nvp("use_pose_center_prior", usePosePrior));
     std::vector<double> vec( 3 );
     ar( cereal::make_nvp( "center_weight", vec ) );
     center_weight_ = Eigen::Map<const Vec3>( &vec[0] );
     ar( cereal::make_nvp( "center", vec ) );
     pose_center_ = Eigen::Map<const Vec3>( &vec[0] );
+    if (usePosePrior)
+      SetPoseCenterPrior(pose_center_, center_weight_);
+
   }
   catch ( cereal::Exception & e )
   {
+    std::cout << "failed to load prior" << std::endl;
     // if it fails just use a default settings
     b_use_pose_center_ = false;
   }

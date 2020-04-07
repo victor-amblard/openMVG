@@ -133,12 +133,13 @@ bool SequentialSfMReconstructionEngine2::Process() {
       }
     }
   }
-
+ 
   if (sfm_data_.GetPoses().empty())
   {
     return false;
   }
-
+      if (dynamic_cast<sfm::ViewPriors*>(sfm_data_.GetViews().at(0).get()) != nullptr)
+          std::cout << "No Problem" << std::endl;
   //--
   //- 2. While we can localize some cameras in the reconstruction
   //     a. Triangulate the landmarks
@@ -185,6 +186,7 @@ bool SequentialSfMReconstructionEngine2::Process() {
   //--
   //- 3. Final bundle Adjustment
   //--
+
   BundleAdjustment();
 
   //-- Reconstruction done.

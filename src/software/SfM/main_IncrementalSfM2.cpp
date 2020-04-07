@@ -63,7 +63,7 @@ using namespace openMVG::sfm;
 int main(int argc, char **argv)
 {
   using namespace std;
-  std::cout << "Sequential/Incremental reconstruction (Engine 2)" << std::endl
+  std::cout << "Sequential/Incremental reconstruction ee(Engine 2)" << std::endl
             << std::endl;
 
   CmdLine cmd;
@@ -160,11 +160,12 @@ int main(int argc, char **argv)
 
   // Load input SfM_Data scene
   SfM_Data sfm_data;
-  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS|EXTRINSICS))) {
+  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS|EXTRINSICS), true)) {
     std::cerr << std::endl
       << "The input SfM_Data file \""<< sSfM_Data_Filename << "\" cannot be read." << std::endl;
     return EXIT_FAILURE;
   }
+  std::cerr << sfm_data.views[15]->id_pose << std::endl;
 
   // Init the regions_type from the image describer file (used for image regions extraction)
   using namespace openMVG::features;
@@ -278,7 +279,9 @@ int main(int argc, char **argv)
     Save(sfmEngine.Get_SfM_Data(),
       stlplus::create_filespec(sOutDir, "sfm_data", ".bin"),
       ESfM_Data(ALL));
+    std::cout << "saving cloud_and_poses.ply" << std::endl;
 
+    
     Save(sfmEngine.Get_SfM_Data(),
       stlplus::create_filespec(sOutDir, "cloud_and_poses", ".ply"),
       ESfM_Data(ALL));

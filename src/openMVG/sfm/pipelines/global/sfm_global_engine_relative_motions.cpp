@@ -499,7 +499,7 @@ bool GlobalSfMReconstructionEngine_RelativeMotions::Adjust()
   if (eraseUnstablePosesAndObservations(sfm_data_, minPointPerPose, minTrackLength))
   {
     // TODO: must ensure that track graph is producing a single connected component
-
+    std::cout << "Is 1 CC?" << IsTracksOneCC(sfm_data_) << std::endl;
     const size_t pointcount_cleaning = sfm_data_.structure.size();
     std::cout << "Point_cloud cleaning:\n"
       << "\t #3DPoints: " << pointcount_cleaning << "\n";
@@ -514,7 +514,8 @@ bool GlobalSfMReconstructionEngine_RelativeMotions::Adjust()
     Extrinsic_Parameter_Type::ADJUST_ALL,  // adjust camera motion
     Structure_Parameter_Type::ADJUST_ALL,  // adjust scene structure
     Control_Point_Parameter(),
-    this->b_use_motion_prior_);
+    this->b_use_motion_prior_   );
+    
 
   b_BA_Status = bundle_adjustment_obj.Adjust(sfm_data_, ba_refine_options);
   if (b_BA_Status && !sLogging_file_.empty())

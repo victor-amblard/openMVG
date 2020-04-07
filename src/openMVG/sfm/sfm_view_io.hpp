@@ -11,7 +11,7 @@
 
 #include "openMVG/sfm/sfm_view.hpp"
 #include "third_party/stlplus3/filesystemSimplified/file_system.hpp"
-
+#include "openMVG/sfm/sfm_view_priors_io.hpp"
 #include <cereal/types/polymorphic.hpp>
 
 template <class Archive>
@@ -31,6 +31,8 @@ template <class Archive>
 void openMVG::sfm::View::load( Archive & ar )
 {
   //Define a view with two string (base_path & basename)
+
+  // std::cout << "Loading view!" << std::endl;
   std::string local_path = s_Img_path;
   std::string filename = s_Img_path;
 
@@ -43,6 +45,8 @@ void openMVG::sfm::View::load( Archive & ar )
      cereal::make_nvp("id_pose", id_pose));
 
   s_Img_path = stlplus::create_filespec(local_path, filename);
+
+
 }
 
 

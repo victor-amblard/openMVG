@@ -30,6 +30,8 @@ using Poses = Hash_Map<IndexT, geometry::Pose3>;
 /// Define a collection of View (indexed by View::id_view)
 using Views = Hash_Map<IndexT, std::shared_ptr<View>>;
 
+using ViewsPriors = Hash_Map<IndexT, std::shared_ptr<ViewPriors>>;
+
 /// Generic SfM data container
 /// Store structure and camera properties:
 struct SfM_Data
@@ -37,6 +39,8 @@ struct SfM_Data
   /// Considered views
   Views views;
   /// Considered poses (indexed by view.id_pose)
+  ViewsPriors viewsP;
+
   Poses poses;
   /// Considered camera intrinsics (indexed by view.id_intrinsic)
   Intrinsics intrinsics;
@@ -52,6 +56,7 @@ struct SfM_Data
   // Accessors
   //--
   const Views & GetViews() const {return views;}
+  const ViewsPriors & GetViewsPriors() const {return viewsP;}
   const Poses & GetPoses() const {return poses;}
   const Intrinsics & GetIntrinsics() const {return intrinsics;}
   const Landmarks & GetLandmarks() const {return structure;}

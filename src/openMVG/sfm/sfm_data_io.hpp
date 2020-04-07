@@ -34,7 +34,7 @@ enum ESfM_Data
 bool ValidIds(const SfM_Data & sfm_data, ESfM_Data flags_part);
 
 /// Load SfM_Data SfM scene from a file
-bool Load(SfM_Data & sfm_data, const std::string & filename, ESfM_Data flags_part);
+bool Load(SfM_Data & sfm_data, const std::string & filename, ESfM_Data flags_part, bool flagVictor=false);
 
 /// Save SfM_Data SfM scene to a file
 bool Save(const SfM_Data & sfm_data, const std::string & filename, ESfM_Data flags_part);

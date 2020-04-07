@@ -52,9 +52,9 @@ inline bool Save_PLY
         view_with_pose_count += sfm_data.IsPoseAndIntrinsicDefined(view.second.get());
       }
 
-      for (const auto & view : sfm_data.GetViews())
+      for (const auto & view : sfm_data.GetViewsPriors())
       {
-        if (const sfm::ViewPriors *prior = dynamic_cast<sfm::ViewPriors*>(view.second.get()))
+        if (const sfm::ViewPriors *prior = view.second.get())
         {
             view_with_pose_prior_count += prior->b_use_pose_center_;
         }
@@ -94,9 +94,9 @@ inline bool Save_PLY
             if (b_write_in_ascii)
             {
               stream
-                << pose.center()(0) << ' '
-                << pose.center()(1) << ' '
-                << pose.center()(2) << ' '
+                << (float)(pose.center()(0)) << ' '
+                << (float)(pose.center()(1)) << ' '
+                << (float)(pose.center()(2)) << ' '
                 << "0 255 0\n";
             }
             else
@@ -105,9 +105,12 @@ inline bool Save_PLY
               stream.write( reinterpret_cast<const char*> ( Vec3uc(0, 255, 0).data() ), sizeof( Vec3uc ) );
             }
           }
+        }
 
+        for (const auto & viewP : sfm_data.GetViewsPriors())
+        {
           // Export pose priors as Blue points
-          if (const sfm::ViewPriors *prior = dynamic_cast<sfm::ViewPriors*>(view.second.get()))
+          if (const sfm::ViewPriors *prior = viewP.second.get())
           {
             if (prior->b_use_pose_center_)
             {
@@ -127,6 +130,7 @@ inline bool Save_PLY
             }
           }
         }
+
       }
 
       if (b_structure)

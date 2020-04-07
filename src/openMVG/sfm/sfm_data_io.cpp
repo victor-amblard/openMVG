@@ -69,16 +69,16 @@ bool ValidIds(const SfM_Data & sfm_data, ESfM_Data flags_part)
   return bRet;
 }
 
-bool Load(SfM_Data & sfm_data, const std::string & filename, ESfM_Data flags_part)
+bool Load(SfM_Data & sfm_data, const std::string & filename, ESfM_Data flags_part, bool flagVictor)
 {
   bool bStatus = false;
   const std::string ext = stlplus::extension_part(filename);
-  if (ext == "json")
-    bStatus = Load_Cereal<cereal::JSONInputArchive>(sfm_data, filename, flags_part);
-  else if (ext == "bin")
-    bStatus = Load_Cereal<cereal::PortableBinaryInputArchive>(sfm_data, filename, flags_part);
+  if (ext == "json"){
+    bStatus = Load_Cereal<cereal::JSONInputArchive>(sfm_data, filename, flags_part,flagVictor);
+  }else if (ext == "bin")
+    bStatus = Load_Cereal<cereal::PortableBinaryInputArchive>(sfm_data, filename, flags_part,flagVictor);
   else if (ext == "xml")
-    bStatus = Load_Cereal<cereal::XMLInputArchive>(sfm_data, filename, flags_part);
+    bStatus = Load_Cereal<cereal::XMLInputArchive>(sfm_data, filename, flags_part,flagVictor);
   else
   {
     std::cerr << "Unknown sfm_data input format: " << ext << std::endl;

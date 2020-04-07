@@ -54,20 +54,22 @@ struct Optimize_Options
   Structure_Parameter_Type structure_opt;
   Control_Point_Parameter control_point_opt;
   bool use_motion_priors_opt;
-
+  bool use_motion_priors_cost_opt;
   Optimize_Options
   (
     const cameras::Intrinsic_Parameter_Type intrinsics = cameras::Intrinsic_Parameter_Type::ADJUST_ALL,
     const Extrinsic_Parameter_Type extrinsics = Extrinsic_Parameter_Type::ADJUST_ALL,
     const Structure_Parameter_Type structure = Structure_Parameter_Type::ADJUST_ALL,
     const Control_Point_Parameter & control_point = Control_Point_Parameter(0.0, false), // Default setting does not use GCP in the BA
-    const bool use_motion_priors = false
+    const bool use_motion_priors = false,
+    const bool use_motion_priors_cost = true
   )
   :intrinsics_opt(intrinsics),
    extrinsics_opt(extrinsics),
    structure_opt(structure),
    control_point_opt(control_point),
-   use_motion_priors_opt(use_motion_priors)
+   use_motion_priors_opt(use_motion_priors),
+   use_motion_priors_cost_opt(use_motion_priors_cost)
   {
   }
 };

@@ -26,7 +26,8 @@ typename archiveType
 bool Load_Cereal(
   SfM_Data & data,
   const std::string & filename,
-  ESfM_Data flags_part);
+  ESfM_Data flags_part,
+        bool flagVictor=false);
 
 /// Save a SfM_Data SfM scene to a file using the Cereal Archive interface
 template <

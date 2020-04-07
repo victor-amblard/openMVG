@@ -188,15 +188,19 @@ bool Bundle_Adjustment_Ceres::Adjust
     {
       // Collect corresponding camera centers
       std::vector<Vec3> X_SfM, X_GPS;
-      for (const auto & view_it : sfm_data.GetViews())
+      for (const auto & view_it : sfm_data.GetViewsPriors())
       {
-        const sfm::ViewPriors * prior = dynamic_cast<sfm::ViewPriors*>(view_it.second.get());
+        ViewPriors *prior(view_it.second.get());
+
+
         if (prior != nullptr && prior->b_use_pose_center_ && sfm_data.IsPoseAndIntrinsicDefined(prior))
         {
           X_SfM.push_back( sfm_data.GetPoses().at(prior->id_pose).center() );
           X_GPS.push_back( prior->pose_center_ );
         }
       }
+      std::cout << " Size X_SfM: " << X_SfM.size() << std::endl;
+      std::cout << " Size X_GPS: " << X_GPS.size() << std::endl; 
       openMVG::geometry::Similarity3 sim;
 
       // Compute the registration:
@@ -433,11 +437,12 @@ bool Bundle_Adjustment_Ceres::Adjust
   // Add Pose prior constraints if any
   if (b_usable_prior)
   {
-    for (const auto & view_it : sfm_data.GetViews())
+    for (const auto & view_it : sfm_data.GetViewsPriors())
     {
-      const sfm::ViewPriors * prior = dynamic_cast<sfm::ViewPriors*>(view_it.second.get());
+      const sfm::ViewPriors * prior = view_it.second.get();
       if (prior != nullptr && prior->b_use_pose_center_ && sfm_data.IsPoseAndIntrinsicDefined(prior))
       {
+        // std::cout << "Will use prior constraints" << std::endl;
         // Add the cost functor (distance from Pose prior to the SfM_Data Pose center)
         ceres::CostFunction * cost_function =
           new ceres::AutoDiffCostFunction<PoseCenterConstraintCostFunction, 3, 6>(
@@ -462,8 +467,8 @@ bool Bundle_Adjustment_Ceres::Adjust
     static_cast<ceres::LinearSolverType>(ceres_options_.linear_solver_type_);
   ceres_config_options.sparse_linear_algebra_library_type =
     static_cast<ceres::SparseLinearAlgebraLibraryType>(ceres_options_.sparse_linear_algebra_library_type_);
-  ceres_config_options.minimizer_progress_to_stdout = ceres_options_.bVerbose_;
-  ceres_config_options.logging_type = ceres::SILENT;
+  ceres_config_options.minimizer_progress_to_stdout = false;
+  // ceres_config_options.logging_type = ceres::SILENT;
   ceres_config_options.num_threads = ceres_options_.nb_threads_;
 #if CERES_VERSION_MAJOR < 2
   ceres_config_options.num_linear_solver_threads = ceres_options_.nb_threads_;
@@ -515,7 +520,23 @@ bool Bundle_Adjustment_Ceres::Adjust
         Vec3 t_refined(map_poses.at(indexPose)[3], map_poses.at(indexPose)[4], map_poses.at(indexPose)[5]);
         // Update the pose
         Pose3 & pose = pose_it.second;
-        pose = Pose3(R_refined, -R_refined.transpose() * t_refined);
+        // pose = Pose3(R_refined, -R_refined.transpose() * t_refined);
+         if (options.extrinsics_opt == Extrinsic_Parameter_Type::ADJUST_ROTATION)
+        {
+            // Update only rotation
+            pose.rotation() = R_refined;
+        }
+        else if (options.extrinsics_opt == Extrinsic_Parameter_Type::ADJUST_TRANSLATION)
+        {
+            // Update only translation
+            const Vec3 C_refined = -R_refined.transpose() * t_refined;
+            pose.center() = C_refined;
+        }
+        else
+        {
+            // Update rotation + translation
+            pose = Pose3(R_refined, -R_refined.transpose() * t_refined);
+        }
       }
     }
 
@@ -544,9 +565,9 @@ bool Bundle_Adjustment_Ceres::Adjust
 
       // Collect corresponding camera centers
       std::vector<Vec3> X_SfM, X_GPS;
-      for (const auto & view_it : sfm_data.GetViews())
+      for (const auto & view_it : sfm_data.GetViewsPriors())
       {
-        const sfm::ViewPriors * prior = dynamic_cast<sfm::ViewPriors*>(view_it.second.get());
+        const sfm::ViewPriors * prior = view_it.second.get();
         if (prior != nullptr && prior->b_use_pose_center_ && sfm_data.IsPoseAndIntrinsicDefined(prior))
         {
           X_SfM.push_back( sfm_data.GetPoses().at(prior->id_pose).center() );

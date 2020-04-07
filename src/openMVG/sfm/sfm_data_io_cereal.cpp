@@ -84,7 +84,8 @@ typename archiveType
 bool Load_Cereal(
   SfM_Data & data,
   const std::string & filename,
-  ESfM_Data flags_part)
+  ESfM_Data flags_part,
+  bool flagVictor)
 {
   const bool bBinary = stlplus::extension_part(filename) == "bin";
 
@@ -113,7 +114,11 @@ bool Load_Cereal(
     {
       if ( version >= "0.3" )
       {
+        if (flagVictor)
+            archive(cereal::make_nvp("views", data.viewsP));
         archive(cereal::make_nvp("views", data.views));
+
+
       }
       else // sfm_data version is < to v0.3 => Previous to OpenMVG v1.1
       {
@@ -257,7 +262,6 @@ bool Save_Cereal(
       archive(cereal::make_nvp("views", data.views));
     else
       archive(cereal::make_nvp("views", Views()));
-
     if (b_intrinsics)
       archive(cereal::make_nvp("intrinsics", data.intrinsics));
     else
@@ -295,7 +299,8 @@ template bool Load_Cereal
 (
   SfM_Data & data,
   const std::string & filename,
-  ESfM_Data flags_part
+  ESfM_Data flags_part,
+  bool flag=false
 );
 
 template bool Load_Cereal
@@ -303,7 +308,8 @@ template bool Load_Cereal
 (
   SfM_Data & data,
   const std::string & filename,
-  ESfM_Data flags_part
+  ESfM_Data flags_part,
+  bool flag=false
 );
 
 template bool Load_Cereal
@@ -311,7 +317,8 @@ template bool Load_Cereal
 (
   SfM_Data & data,
   const std::string & filename,
-  ESfM_Data flags_part
+  ESfM_Data flags_part,
+  bool flag=false
 );
 
 template bool Load_Cereal
@@ -319,7 +326,8 @@ template bool Load_Cereal
 (
   SfM_Data & data,
   const std::string & filename,
-  ESfM_Data flags_part
+  ESfM_Data flags_part,
+  bool flag=false
 );
 
 template bool Save_Cereal
