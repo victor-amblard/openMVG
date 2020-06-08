@@ -26,6 +26,11 @@ enum class Extrinsic_Parameter_Type : int
   ADJUST_ALL = ADJUST_ROTATION | ADJUST_TRANSLATION
 };
 
+enum class Line_Parameter_Type : bool
+{
+  NONE = false,
+  ADJUST_ALL = true
+};
 /// Enum to control if the Structure must be refined or not
 enum class Structure_Parameter_Type : bool
 {
@@ -55,6 +60,9 @@ struct Optimize_Options
   Control_Point_Parameter control_point_opt;
   bool use_motion_priors_opt;
   bool use_motion_priors_cost_opt;
+  bool use_lines_opt;
+  Line_Parameter_Type line_opt;
+
   Optimize_Options
   (
     const cameras::Intrinsic_Parameter_Type intrinsics = cameras::Intrinsic_Parameter_Type::ADJUST_ALL,
@@ -62,14 +70,18 @@ struct Optimize_Options
     const Structure_Parameter_Type structure = Structure_Parameter_Type::ADJUST_ALL,
     const Control_Point_Parameter & control_point = Control_Point_Parameter(0.0, false), // Default setting does not use GCP in the BA
     const bool use_motion_priors = false,
-    const bool use_motion_priors_cost = true
+    const bool use_motion_priors_cost = true,
+    const bool use_lines = false,
+    const Line_Parameter_Type line = Line_Parameter_Type::NONE
   )
   :intrinsics_opt(intrinsics),
    extrinsics_opt(extrinsics),
    structure_opt(structure),
    control_point_opt(control_point),
    use_motion_priors_opt(use_motion_priors),
-   use_motion_priors_cost_opt(use_motion_priors_cost)
+   use_motion_priors_cost_opt(use_motion_priors_cost),
+   use_lines_opt(use_lines),
+   line_opt(line)
   {
   }
 };

@@ -9,8 +9,13 @@
 #ifndef OPENMVG_SFM_SFM_DATA_BA_CERES_HPP
 #define OPENMVG_SFM_SFM_DATA_BA_CERES_HPP
 
+#include <string>
+#include <iostream>
+
 #include "openMVG/numeric/eigen_alias_definition.hpp"
 #include "openMVG/sfm/sfm_data_BA.hpp"
+#include "openMVG/sfm/sfm_geometric_features_extraction.hpp"
+#include "openMVG/sfm/sfm_point_cloud_utils.hpp"
 
 namespace ceres { class CostFunction; }
 namespace openMVG { namespace cameras { struct IntrinsicBase; } }

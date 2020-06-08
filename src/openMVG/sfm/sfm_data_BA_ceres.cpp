@@ -30,6 +30,7 @@
 
 #include <iostream>
 #include <limits>
+#include <boost/filesystem.hpp>
 
 namespace openMVG {
 namespace sfm {
@@ -38,6 +39,86 @@ using namespace openMVG::cameras;
 using namespace openMVG::geometry;
 
 // Ceres CostFunctor used for SfM pose center to GPS pose center minimization
+//The main idea is to make use of planes and minimize the distance between 2 planes (LIDAR + SfM)
+struct LineReprojectionConstraintCostFunction
+{
+  const double * m_line_2d_endpoints; //4D vector
+  explicit LineReprojectionConstraintCostFunction(const double* const line_2d)
+  :m_line_2d_endpoints(line_2d)
+  {
+  }
+  template <typename T> bool operator() 
+  (
+  const T* const cam_intrinsics,
+  const T* const cam_extrinsics,
+  const T* const line_3d_endpoint,
+  T* out_residuals
+  ) 
+  const 
+  {
+    const T * cam_R = cam_extrinsics;
+    Eigen::Map<const Eigen::Matrix<T, 3, 1>> cam_t(&cam_extrinsics[3]);
+
+    Eigen::Matrix<T, 3, 1> transformed_point_start, transformed_point_end;
+    // Rotate the point according the camera rotation
+    ceres::AngleAxisRotatePoint(cam_R, line_3d_endpoint, transformed_point_start.data()); //3D starting point
+    ceres::AngleAxisRotatePoint(cam_R, line_3d_endpoint+3, transformed_point_end.data()); //3D end point
+
+    // Apply the camera translation
+    transformed_point_start += cam_t;
+    transformed_point_end += cam_t;
+
+    // Transform the point from homogeneous to euclidean (undistorted point)
+    Eigen::Matrix<T, 2, 1> projected_point3d_start = transformed_point_start.hnormalized();
+    Eigen::Matrix<T, 2, 1> projected_point3d_end = transformed_point_end.hnormalized();
+
+    //--
+    // Apply intrinsic parameters
+    //--
+
+    const T& focal = cam_intrinsics[0];
+    const T& principal_point_x = cam_intrinsics[1];
+    const T& principal_point_y = cam_intrinsics[2];
+    // Apply focal length and principal point to get the final image coordinates
+    Eigen::Matrix<T,2,1> proj_3d_point_start(principal_point_x + projected_point3d_start.x() * focal,
+                                                   principal_point_y + projected_point3d_start.y() * focal);
+
+    Eigen::Matrix<T,2,1> proj_3d_point_end(principal_point_x + projected_point3d_end.x() * focal,
+                                           principal_point_y + projected_point3d_end.y() * focal);
+
+    //Compute orthogonal projection of 2D point on a 2D line
+    const Eigen::Matrix<T,2,1> line_2d_start(m_line_2d_endpoints[0], m_line_2d_endpoints[1]);
+    const Eigen::Matrix<T,2,1> line_2d_end(m_line_2d_endpoints[2], m_line_2d_endpoints[3]);
+    
+    
+    //We project on m_line_2d_endpoint_start and end on the (finite) line formed by (proj_3d_point_start, proj_3d_point_end)
+    Eigen::Matrix<T,2,1> start_2d_proj_3d_line ;
+    Eigen::Matrix<T,2,1> end_2d_proj_3d_line;
+    
+    //Step 1: Compute the projection 
+    Eigen::Matrix<T,2,1> proj_3d_dir = end_2d_proj_3d_line - start_2d_proj_3d_line;
+    proj_3d_dir.normalize();
+
+    const T t_start = std::min(T(1), std::max(T(0), T(proj_3d_dir.dot(line_2d_start - proj_3d_point_start))));
+    const T t_end = std::min(T(1), std::max(T(0), T(proj_3d_dir.dot(line_2d_end - proj_3d_point_start))));
+
+    start_2d_proj_3d_line = proj_3d_point_start + t_start*proj_3d_dir;
+    end_2d_proj_3d_line = proj_3d_point_start + t_end*proj_3d_dir;
+
+    //Distance between 2d endpoint projected on the projected 3D line and the 2d endpoint
+    T dist_start_to_start = pow(pow(start_2d_proj_3d_line.x() - line_2d_start.x(), 2.)+pow(start_2d_proj_3d_line.y() - line_2d_start.y(), 2.), 1/2.);
+    T dist_end_to_end = pow(pow(end_2d_proj_3d_line.x() - line_2d_end.x(), 2.) + pow(end_2d_proj_3d_line.y() - line_2d_end.y(), 2.), 1/2.);
+
+    // Compute and return the error is the difference between the predicted
+    //  and observed position
+    Eigen::Map<Eigen::Matrix<T, 2, 1>> residuals(out_residuals);
+
+    residuals <<  dist_start_to_start, 
+                  dist_end_to_end;
+
+      return true;
+  }
+};
 struct PoseCenterConstraintCostFunction
 {
   Vec3 weight_;
@@ -238,12 +319,126 @@ bool Bundle_Adjustment_Ceres::Adjust
       }
     }
   }
+  
+  Hash_Map<IndexT, Eigen::Vector6d> all_3d_lines;
+  Hash_Map<IndexT, std::pair<IndexT, Eigen::Vector4d>> all_2d_lines;
+
+  std::vector<std::pair<IndexT, std::vector<IndexT>>> potential_matches; //For each line L_j the vector l_x^{xj}
+
+  if (options.use_lines_opt){
+    std::cout << " Using lines opt" << std::endl;
+    //Right now we are precomputing lines (i.e. fusing lidar clouds + getting SfM points on line)
+     std::vector<std::string> allFilenames;
+    Eigen::Matrix4d lidar2camera;
+    lidar2camera << -0.70992163, -0.02460003, -0.70385092, -0.04874569,
+                     0.70414167, -0.00493623, -0.71004236, -0.05289342,  
+                     0.01399269, -0.99968519,  0.02082624, -0.04699275,
+                        0.        ,  0.        ,  0.,  1.;
+
+    IndexT curIdxLine(0);
+    for(auto view_it:sfm_data.views){
+        const View* v = view_it.second.get();
+        std::string vPath = v->s_Img_path;
+        size_t pos = vPath.find("png");
+        std::string lPath = vPath.replace(pos, 3,"pcd");
+
+        allFilenames.push_back(lPath);
+        boost::filesystem::path curP;
+        curP /= sfm_data.s_root_path;
+        curP /= "/"+vPath;
+
+        std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> res;
+        openMVG::sfm::getLinesInImageAfm(curP.string(), res);
+        for(auto elem: res){
+          all_2d_lines.insert({curIdxLine, std::make_pair(v->id_view, Eigen::Vector4d(elem.first(0), elem.first(1), elem.second(0), elem.second(1)))});
+          ++curIdxLine;
+        }
+    }
+
+    // Step 1: Load all lines from files
+
+    // Step 2: Load all 3D lines from files 
+
+    // Step 3: Load all 3D clouds
+    //SFM cloud
+    PointCloudXYZ::Ptr sfmCloud(new PointCloudXYZ);
+
+    for(auto & structure_landmark_it : sfm_data.structure){
+        sfmCloud->push_back(pcl::PointXYZ(structure_landmark_it.second.X(0), structure_landmark_it.second.X(1), structure_landmark_it.second.X(2)));
+    }
+    //Lidar cloud
+    PointCloudXYZ::Ptr lidarCloud(new PointCloudXYZ); 
+    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_root_path, allFilenames);
+    openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera, lidarCloud);
+    std::cerr << "Fused point clouds " << std::endl;
+    openMVG::sfm::visualizePointCloud(lidarCloud);
+
+
+    std::vector<std::vector<IndexT>> lines_2d_per_image;
+    std::vector<std::vector<IndexT>> lines_3d_per_image;
+
+    //Get all potential matches
+
+    for (const auto& view_it: sfm_data.GetViews()){
+
+      const Pose3 pose = sfm_data.GetPoseOrDie(view_it.second.get());
+      const Mat3 K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();
+
+      std::vector<std::pair<IndexT, Eigen::Vector4d>> projected_3d_lines = getAllVisibleLines(all_3d_lines, pose, K, view_it.second.get());
+
+      for(auto id_2d_segment: lines_2d_per_image.at(view_it.second->id_view)){
+        Eigen::Vector4d cur_2d_segment = all_2d_lines.at(id_2d_segment).second;
+        int res = getLineLineCorrespondence(cur_2d_segment, projected_3d_lines, K, pose);
+        if (res > 0)
+          potential_matches.at(res).second.push_back(id_2d_segment);
+      }
+    }
+
+   //Remove all lines matched in only one image
+   for(auto it = potential_matches.begin();it!=potential_matches.end();++it){
+     IndexT curImg = all_2d_lines.at(it->second.at(0)).first; //check that this is the image
+     bool valid = false;
+
+     for (auto iI = 1;iI<it->second.size();++iI)
+        if (all_2d_lines.at(it->second.at(iI)).first != curImg)
+          valid = true;
+
+     if (!valid){
+       it = potential_matches.erase(it);
+     }else{
+       ++it;
+     }
+   }
+
+    // std::vector<Eigen::Vector6f> lines;
+
+    // std::vector<pcl::ModelCoefficients> planes;
+    // std::vector<PointCloudXYZ::Ptr, Eigen::aligned_allocator<PointCloudXYZ::Ptr>> outputClouds;
+    // openMVG::sfm::extractPlanesFromCloud(lidarCloud, planes, outputClouds);
+    // std::cerr << "Extracted planes..." << std::endl;
+    // openMVG::sfm::findLinesFromPlanes(planes, lines);
+    // std::cerr << "Found plane intersections..." << std::endl;
+    // openMVG::sfm::checkInlierLines(lines, sfmCloud, lineFeatureCorrespondences);
+
+    // for(auto & structure_landmark_it : sfm_data.structure)
+        // landmarksLine.push_back(-1);
+
+    // int iLine(0);
+    // for(auto elem: *lineFeatureCorrespondences){
+        // all3dLines.push_back(elem.first);
+        // for(auto landmark: elem.second){
+          // landmarksLine.at(landmark) = static_cast<IndexT>(iLine); 
+        // }
+        // ++iLine;
+    // }
+  }
 
   ceres::Problem problem;
 
   // Data wrapper for refinement:
   Hash_Map<IndexT, std::vector<double>> map_intrinsics;
   Hash_Map<IndexT, std::vector<double>> map_poses;
+  Hash_Map<IndexT, std::vector<double>> map_lines;
 
   // Setup Poses data & subparametrization
   for (const auto & pose_it : sfm_data.poses)
@@ -327,6 +522,23 @@ bool Bundle_Adjustment_Ceres::Adjust
     }
   }
 
+  if (options.use_lines_opt){
+     for (const auto& lineCorrespondence: potential_matches)
+      {
+      IndexT indexLine = lineCorrespondence.first;
+      Eigen::Vector6d curLine3DEndpoints = all_3d_lines[indexLine];
+      map_lines[indexLine] = {curLine3DEndpoints(0), curLine3DEndpoints(1), curLine3DEndpoints(2),curLine3DEndpoints(3), curLine3DEndpoints(4),curLine3DEndpoints(5)};
+    
+      double * parameter_block = &map_lines.at(indexLine)[0];
+
+      problem.AddParameterBlock(parameter_block,6);
+
+      if (options.line_opt == Line_Parameter_Type::NONE){
+        problem.SetParameterBlockConstant(parameter_block);
+      }
+    }
+  }
+
   // Set a LossFunction to be less penalized by false measurements
   //  - set it to nullptr if you don't want use a lossFunction.
   ceres::LossFunction * p_LossFunction =
@@ -349,8 +561,9 @@ bool Bundle_Adjustment_Ceres::Adjust
       // image location and compares the reprojection against the observation.
       ceres::CostFunction* cost_function =
         IntrinsicsToCostFunction(sfm_data.intrinsics.at(view->id_intrinsic).get(),
-                                 obs_it.second.x);
+                                 obs_it.second.x);  
 
+  
       if (cost_function)
       {
         if (!map_intrinsics.at(view->id_intrinsic).empty())
@@ -374,6 +587,7 @@ bool Bundle_Adjustment_Ceres::Adjust
         std::cerr << "Cannot create a CostFunction for this camera model." << std::endl;
         return false;
       }
+      
     }
     if (options.structure_opt == Structure_Parameter_Type::NONE)
       problem.SetParameterBlockConstant(structure_landmark_it.second.X.data());
@@ -434,6 +648,36 @@ bool Bundle_Adjustment_Ceres::Adjust
     }
   }
 
+  if (options.use_lines_opt){
+        //Warning !! Needs to be changed
+    for (const auto& lineCorrespondence: potential_matches)
+    {
+      IndexT indexLine = lineCorrespondence.first;
+
+      for (const auto& line_it: lineCorrespondence.second){
+
+          IndexT curViewId = all_2d_lines.at(line_it).first;
+          IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;
+          IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
+
+          Eigen::Matrix<double,4,1> cur_2d_line = all_2d_lines.at(line_it).second;
+          double curLine[4] = {cur_2d_line(0), cur_2d_line(1), cur_2d_line(2), cur_2d_line(3)};
+
+          ceres::CostFunction * cost_function_lines = 
+          new ceres::AutoDiffCostFunction<LineReprojectionConstraintCostFunction,2,3,6,6>(
+            new LineReprojectionConstraintCostFunction(curLine));
+
+          problem.AddResidualBlock(
+          cost_function_lines,
+          p_LossFunction,
+          &map_intrinsics.at(curIntrId)[0],
+          &map_poses.at(curPoseId)[0],
+          &map_lines.at(indexLine)[0]
+        );
+      }
+    }   
+  }
+
   // Add Pose prior constraints if any
   if (b_usable_prior)
   {
@@ -453,11 +697,12 @@ bool Bundle_Adjustment_Ceres::Adjust
           new ceres::HuberLoss(
             Square(pose_center_robust_fitting_error)),
                    &map_poses.at(prior->id_view)[0]);
+      
+        
       }
     }
   }
-
-  // Configure a BA engine and run it
+    // Configure a BA engine and run it
   //  Make Ceres automatically detect the bundle structure.
   ceres::Solver::Options ceres_config_options;
   ceres_config_options.max_num_iterations = 500;
