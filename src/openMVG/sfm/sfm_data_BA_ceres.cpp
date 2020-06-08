@@ -334,6 +334,8 @@ bool Bundle_Adjustment_Ceres::Adjust
                      0.70414167, -0.00493623, -0.71004236, -0.05289342,  
                      0.01399269, -0.99968519,  0.02082624, -0.04699275,
                         0.        ,  0.        ,  0.,  1.;
+    std::vector<std::vector<IndexT>> lines_2d_per_image;
+    lines_2d_per_image.reserve(sfm_data.GetViews().size());
 
     IndexT curIdxLine(0);
     for(auto view_it:sfm_data.views){
@@ -341,18 +343,19 @@ bool Bundle_Adjustment_Ceres::Adjust
         std::string vPath = v->s_Img_path;
         size_t pos = vPath.find("png");
         std::string lPath = vPath.replace(pos, 3,"pcd");
-
+        std::string afmPath = vPath.replace(pos,3,"txt");
         allFilenames.push_back(lPath);
-        boost::filesystem::path curP;
-        curP /= sfm_data.s_root_path;
-        curP /= "/"+vPath;
+ 
 
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> res;
-        openMVG::sfm::getLinesInImageAfm(curP.string(), res);
+        openMVG::sfm::getLinesInImageAfm(afmPath, res);
+        std::vector<IndexT> tmpVectorIdx;
         for(auto elem: res){
+          tmpVectorIdx.push_back(curIdxLine);
           all_2d_lines.insert({curIdxLine, std::make_pair(v->id_view, Eigen::Vector4d(elem.first(0), elem.first(1), elem.second(0), elem.second(1)))});
           ++curIdxLine;
         }
+        lines_2d_per_image.push_back(tmpVectorIdx);
     }
 
     // Step 1: Load all lines from files
@@ -373,12 +376,8 @@ bool Bundle_Adjustment_Ceres::Adjust
     std::cerr << "Fused point clouds " << std::endl;
     openMVG::sfm::visualizePointCloud(lidarCloud);
 
-
-    std::vector<std::vector<IndexT>> lines_2d_per_image;
-    std::vector<std::vector<IndexT>> lines_3d_per_image;
-
     //Get all potential matches
-
+    std::cout << "Computing 2D/3D line correspondences..." << std::endl;
     for (const auto& view_it: sfm_data.GetViews()){
 
       const Pose3 pose = sfm_data.GetPoseOrDie(view_it.second.get());
@@ -395,6 +394,7 @@ bool Bundle_Adjustment_Ceres::Adjust
     }
 
    //Remove all lines matched in only one image
+   int iRemoveLines(0);
    for(auto it = potential_matches.begin();it!=potential_matches.end();++it){
      IndexT curImg = all_2d_lines.at(it->second.at(0)).first; //check that this is the image
      bool valid = false;
@@ -404,12 +404,13 @@ bool Bundle_Adjustment_Ceres::Adjust
           valid = true;
 
      if (!valid){
+       ++iRemoveLines;
        it = potential_matches.erase(it);
      }else{
        ++it;
      }
    }
-
+  std::cout << "Removed " << iRemoveLines<< " 3D lines appearing in only one image..." << std::endl;
     // std::vector<Eigen::Vector6f> lines;
 
     // std::vector<pcl::ModelCoefficients> planes;
