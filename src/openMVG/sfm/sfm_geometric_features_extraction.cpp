@@ -371,44 +371,53 @@ void loadAllAfMFiles(const std::vector<std::string>& filenames,
 std::pair<int,float> matchLine2Line(const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>& detectedLines,
                                     const Eigen::Vector3d backProjectedLine)
 {
-    int iMini = -1;
-    float minDist = std::numeric_limits<float>::max();
+    const double thetaThreshold(25*M_PI/180); 
+    const double distThreshold(100); 
+    return std::make_pair(0,0.f);
+    /*
+    Eigen::Vector2f curLDir(1, (proj3DLine.second(1)-proj3DLine.first(1))/(proj3DLine.second(0)-proj3DLine.first(0)));
+    Eigen::Vector2f tentLDir(1, (detected2DLine.second(1)-detected2DLine.first(1))/(detected2DLine.second(0)-detected2DLine.first(0)));
+    curLDir.normalize();
+    tentLDir.normalize();
 
-    const float threshMatch(0.015f); //10 degrees
-    const float distBetweenLines(1.f);
+    double thetaDist = std::acos(curLDir.dot(tentLDir)/(curLDir.norm()*tentLDir.norm()));
+    double dDist = pointToLineDist(detected2DLine.first, proj3DLine) + pointToLineDist(detected2DLine.second, proj3DLine);
+    //TODO: Just normalize it once
+    double tEnd = getParameterPointLine2(proj3DLine.first, proj3DLine.second, curLDir);
 
-    Eigen::Vector2d curDir(-backProjectedLine(1) , backProjectedLine(0));
-    curDir.normalize();
+    Eigen::Vector2f startProj, endProj;
+    //Projection of 2D line endpoints to backprojected 3D line
 
-    for (size_t i=0;i<detectedLines.size();++i){
-        auto curLine = detectedLines.at(i);
-        Eigen::Vector2d lDir(curLine.second(0)-curLine.first(0), curLine.second(1)-curLine.first(1));
-        lDir.normalize();
-        float distBetweenVec = std::fabs(lDir.dot(curDir)-1);
+    projectPoint2Line2D(detected2DLine.first, proj3DLine.first, curLDir, startProj);
+    projectPoint2Line2D(detected2DLine.second, proj3DLine.first, curLDir, endProj);
 
-        if(distBetweenVec < threshMatch && distBetweenVec < minDist){
-            iMini = i;
-            minDist = distBetweenVec;
-        }
+
+    double tStartProj = getParameterPointLine2(proj3DLine.first, startProj, curLDir);
+    double tEndProj = getParameterPointLine2(proj3DLine.first, endProj, curLDir);
+    if (tEndProj < tStartProj){
+        double tmp = tStartProj;
+        tStartProj = tEndProj;
+        tEndProj = tmp;
     }
 
+    double alphaEnd = std::max(0., std::min(1., tEndProj/tEnd));
+    double alphaStart = std::max(0., std::min(1., tStartProj/tEnd));
 
-    return std::make_pair(iMini, minDist);
+    double lenOverlap = alphaEnd-alphaStart;
+
+    bool overlaps = (lenOverlap > 0.2); //20% overlap at least
+
+    if (thetaDist < thetaThreshold && dDist < distThreshold && overlaps){
+        distance(0) = thetaDist;
+        distance(1) = dDist;
+        distance(2) = lenOverlap;
+        return std::make_pair(true, distance.norm());
+    } else {
+        return std::make_pair(false;
+
+    }*/
 }
-bool isRobustMatchLine(const IndexT& view,
-              const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>& allLinesImage,
-              const Eigen::Matrix4d projMatrix,
-              const Line& l,
-              Eigen::Vector3d result)
-{   
 
-    Eigen::Vector3d backProjLine = l.getProjection(projMatrix);
-    auto matchResult = matchLine2Line(allLinesImage, backProjLine);
-
-    if(matchResult.first == -1)
-        return false;
-
-}
 void visualize3dLines(const std::vector<std::pair<Line, std::vector<int>>>* lines,
                       PointCloudXYZ::Ptr& cloud,
                       std::vector<Eigen::Vector6f>& intersections)
@@ -536,6 +545,36 @@ std::vector<std::pair<IndexT, Eigen::Vector4d>> getAllVisibleLines(const Hash_Ma
     }
     return visibleLines;
 }
+void visualizeMatches(const std::vector<std::pair<IndexT, std::vector<IndexT>>>& matches,
+                      const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
+                      const Hash_Map<IndexT, std::pair<IndexT, Eigen::Vector4d>>& all_2d_lines,
+                      const Hash_Map<IndexT, Hash_Map<IndexT, Eigen::Vector4d>>& proj_3d_lines,
+                      const View * v,
+                      const std::string& rootPath)
+{
+    IndexT viewId = v->id_view;
+    std::string fn = rootPath + "/"+v->s_Img_path;
+    cv::Mat img = cv::imread(fn);
 
+    for(size_t i=0;i<matches.size();++i){
+        bool valid3dLine = false;
+        IndexT line3dIdx = matches.at(i).first;
+        for (IndexT line2dIdx: matches.at(i).second){
+            if (all_2d_lines.at(line2dIdx).first == viewId){
+                valid3dLine = true;
+                Eigen::Vector4d line_2d_endpoints = all_2d_lines.at(line2dIdx).second;
+                cv::line(img, cv::Point(line_2d_endpoints(0), line_2d_endpoints(1)), cv::Point(line_2d_endpoints(2), line_2d_endpoints(3)), cv::Scalar(0,0,255), 1, CV_AA);
+            }
+        }
+        if (valid3dLine){
+            const Eigen::Vector4d line_3d_endpoints = proj_3d_lines.at(line3dIdx).at(viewId);
+            cv::line(img, cv::Point(line_3d_endpoints(0), line_3d_endpoints(1)), cv::Point(line_3d_endpoints(2), line_3d_endpoints(3)), cv::Scalar(255,0,0), 1, CV_AA);
+
+        }
+    }
+
+    cv::imshow(v->s_Img_path, img);
+    cv::waitKey(0);
+}
 }
 }

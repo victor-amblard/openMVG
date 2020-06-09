@@ -98,16 +98,6 @@ std::pair<int,float> matchLine2Line(const std::vector<std::pair<Eigen::Vector2d,
                                     const Eigen::Vector3f backProjectedLine);
 
 
-/**
- * Evaluates a potential match between a given 3D line, a view and all the detected lines associated to that view
- * @return a boolean indicating whether the backprojected 3D line can be robustly associated with a 2D line or not
-*/
-bool isRobustMatchLine(const IndexT& view,
-                       const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>& allLinesImage,
-                       const Eigen::Matrix4d projMatrix,
-                       const Line& l,
-                       Eigen::Vector3d result);
-
 int getLineLineCorrespondence(const Eigen::Vector4d& cur2dSegment,
                               const std::vector<std::pair<IndexT, Eigen::Vector4d>> allVisible3dlines,
                               const Mat3& K,
@@ -143,5 +133,11 @@ void visualize3dLines(const std::vector<std::pair<Line, std::vector<int>>>* line
                       PointCloudXYZ::Ptr& cloud,
                       std::vector<Eigen::Vector6f>& intersections);
 
+void visualizeMatches(const std::vector<std::pair<IndexT, std::vector<IndexT>>>& matches,
+                      const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
+                      const Hash_Map<IndexT, std::pair<IndexT, Eigen::Vector4d>>& all_2d_lines,
+                      const Hash_Map<IndexT, Hash_Map<IndexT, Eigen::Vector4d>>& proj_3d_lines,
+                      const View * v,
+                      const std::string& rootPath);
 }
 }

@@ -61,8 +61,9 @@ struct LineReprojectionConstraintCostFunction
 
     Eigen::Matrix<T, 3, 1> transformed_point_start, transformed_point_end;
     // Rotate the point according the camera rotation
+    
     ceres::AngleAxisRotatePoint(cam_R, line_3d_endpoint, transformed_point_start.data()); //3D starting point
-    ceres::AngleAxisRotatePoint(cam_R, line_3d_endpoint+3, transformed_point_end.data()); //3D end point
+    ceres::AngleAxisRotatePoint(cam_R, &line_3d_endpoint[3], transformed_point_end.data()); //3D end point
 
     // Apply the camera translation
     transformed_point_start += cam_t;
@@ -81,7 +82,7 @@ struct LineReprojectionConstraintCostFunction
     const T& principal_point_y = cam_intrinsics[2];
     // Apply focal length and principal point to get the final image coordinates
     Eigen::Matrix<T,2,1> proj_3d_point_start(principal_point_x + projected_point3d_start.x() * focal,
-                                                   principal_point_y + projected_point3d_start.y() * focal);
+                                            principal_point_y + projected_point3d_start.y() * focal);
 
     Eigen::Matrix<T,2,1> proj_3d_point_end(principal_point_x + projected_point3d_end.x() * focal,
                                            principal_point_y + projected_point3d_end.y() * focal);
@@ -92,29 +93,34 @@ struct LineReprojectionConstraintCostFunction
     
     
     //We project on m_line_2d_endpoint_start and end on the (finite) line formed by (proj_3d_point_start, proj_3d_point_end)
-    Eigen::Matrix<T,2,1> start_2d_proj_3d_line ;
-    Eigen::Matrix<T,2,1> end_2d_proj_3d_line;
+    Eigen::Matrix<T,2,1> start_2d_proj_2d_line ;
+    Eigen::Matrix<T,2,1> end_2d_proj_2d_line;
     
     //Step 1: Compute the projection 
-    Eigen::Matrix<T,2,1> proj_3d_dir = end_2d_proj_3d_line - start_2d_proj_3d_line;
-    proj_3d_dir.normalize();
+    Eigen::Matrix<T,2,1> proj_3d_dir = proj_3d_point_end - proj_3d_point_start;
+    T normProj = proj_3d_dir.norm();
 
-    const T t_start = std::min(T(1), std::max(T(0), T(proj_3d_dir.dot(line_2d_start - proj_3d_point_start))));
-    const T t_end = std::min(T(1), std::max(T(0), T(proj_3d_dir.dot(line_2d_end - proj_3d_point_start))));
+    const T t_start = std::min(normProj, std::max(T(0), T(proj_3d_dir.dot(line_2d_start - proj_3d_point_start))));
+    const T t_end = std::min(normProj, std::max(T(0), T(proj_3d_dir.dot(line_2d_end - proj_3d_point_start))));
 
-    start_2d_proj_3d_line = proj_3d_point_start + t_start*proj_3d_dir;
-    end_2d_proj_3d_line = proj_3d_point_start + t_end*proj_3d_dir;
+    start_2d_proj_2d_line = proj_3d_point_start + t_start*proj_3d_dir/normProj;
+    end_2d_proj_2d_line = proj_3d_point_start + t_end*proj_3d_dir/normProj;
 
-    //Distance between 2d endpoint projected on the projected 3D line and the 2d endpoint
-    T dist_start_to_start = pow(pow(start_2d_proj_3d_line.x() - line_2d_start.x(), 2.)+pow(start_2d_proj_3d_line.y() - line_2d_start.y(), 2.), 1/2.);
-    T dist_end_to_end = pow(pow(end_2d_proj_3d_line.x() - line_2d_end.x(), 2.) + pow(end_2d_proj_3d_line.y() - line_2d_end.y(), 2.), 1/2.);
+    Eigen::Matrix<T,2,1> dir_2d = (line_2d_end - line_2d_start).normalized();
+
+    Eigen::Matrix<T,2,1> adjusted_2d_start = line_2d_start+(start_2d_proj_2d_line-line_2d_start).dot(dir_2d)*dir_2d;
+    Eigen::Matrix<T,2,1> adjusted_2d_end = line_2d_start+(end_2d_proj_2d_line-line_2d_start).dot(dir_2d)*dir_2d;
+
 
     // Compute and return the error is the difference between the predicted
     //  and observed position
-    Eigen::Map<Eigen::Matrix<T, 2, 1>> residuals(out_residuals);
+    Eigen::Map<Eigen::Matrix<T, 4, 1>> residuals(out_residuals);
+    residuals <<  start_2d_proj_2d_line.x() - adjusted_2d_start.x(), 
+                  start_2d_proj_2d_line.y() - adjusted_2d_start.y(),
+                  end_2d_proj_2d_line.x() - adjusted_2d_end.x(),
+                  end_2d_proj_2d_line.y() - adjusted_2d_end.y();
 
-    residuals <<  dist_start_to_start, 
-                  dist_end_to_end;
+        // std::cerr << residuals << std::endl;
 
       return true;
   }
@@ -321,6 +327,7 @@ bool Bundle_Adjustment_Ceres::Adjust
   }
   
   Hash_Map<IndexT, Eigen::Vector6d> all_3d_lines;
+  Hash_Map<IndexT, Hash_Map<IndexT, Eigen::Vector4d>> projections_3d_lines;
   Hash_Map<IndexT, std::pair<IndexT, Eigen::Vector4d>> all_2d_lines;
 
   std::vector<std::pair<IndexT, std::vector<IndexT>>> potential_matches; //For each line L_j the vector l_x^{xj}
@@ -348,26 +355,32 @@ bool Bundle_Adjustment_Ceres::Adjust
         
         boost::filesystem::path curP;
         curP = sfm_data.s_root_path;
-        curP /= "/"+afmPath;
+        curP /= afmPath;
 
+        std::cerr << curP.string() << std::endl;
 
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> res;
         openMVG::sfm::getLinesInImageAfm(curP.string(), res);
         std::vector<IndexT> tmpVectorIdx;
-        for(auto elem: res){
+        for(auto i=0;i<0;++i){
           tmpVectorIdx.push_back(curIdxLine);
-          all_2d_lines.insert({curIdxLine, std::make_pair(v->id_view, Eigen::Vector4d(elem.first(0), elem.first(1), elem.second(0), elem.second(1)))});
+          // all_2d_lines.insert({curIdxLine, std::make_pair(v->id_view, Eigen::Vector4d(elem.first(0), elem.first(1), elem.second(0), elem.second(1)))});
           ++curIdxLine;
         }
         lines_2d_per_image.push_back(tmpVectorIdx);
     }
-
     // Step 1: Load all lines from files
-
+    all_2d_lines[0] = std::make_pair(0, Eigen::Vector4d(476,312,485,2));
+    all_2d_lines[1] = std::make_pair(105, Eigen::Vector4d(232,290,236,151));
+    all_2d_lines[2] = std::make_pair(130, Eigen::Vector4d(123,332,132,27));
+    lines_2d_per_image.at(0).push_back(0);
+    lines_2d_per_image.at(105).push_back(1);
+    lines_2d_per_image.at(130).push_back(2);
     // Step 2: Load all 3D lines from files 
     //Warning! Test 
-    all_3d_lines[0] = Eigen::Vector6d(-0.23,21.90,-1.22,-0.25,22.0,6.05);
+    all_3d_lines[0] = Eigen::Vector6d(-1.3,23.3,0.3,-0.5,22.2,8.3);
     potential_matches.reserve(all_3d_lines.size());
+    std::cerr << all_2d_lines.size() << std::endl;
 
     for (size_t iLin=0;iLin<all_3d_lines.size();++iLin){
       potential_matches.push_back(std::make_pair(iLin, std::vector<IndexT>()));
@@ -397,20 +410,24 @@ bool Bundle_Adjustment_Ceres::Adjust
       for(auto id_2d_segment: lines_2d_per_image.at(view_it.second->id_view)){
         Eigen::Vector4d cur_2d_segment = all_2d_lines.at(id_2d_segment).second;
         int res = getLineLineCorrespondence(cur_2d_segment, projected_3d_lines, K, pose);
-        if (res > 0)
+        if (res >= 0){
           potential_matches.at(res).second.push_back(id_2d_segment);
+          projections_3d_lines[res][view_it.second->id_view] = projected_3d_lines.at(res).second;
+        }
       }
     }
-
+  
    //Remove all lines matched in only one image
    int iRemoveLines(0);
    for(auto it = potential_matches.begin();it!=potential_matches.end();){
      bool valid = false;
-     if (it->second.size()){
+     if (it->second.size()>0){
         IndexT curImg = all_2d_lines.at(it->second.at(0)).first; //check that this is the image
       for (auto iI = 1;iI<it->second.size();++iI)
           if (all_2d_lines.at(it->second.at(iI)).first != curImg)
             valid = true;
+     }else{
+       std::cerr << "No correspondence found for the current line " << std::endl;
      }
      if (!valid){
        ++iRemoveLines;
@@ -444,6 +461,15 @@ bool Bundle_Adjustment_Ceres::Adjust
         // }
         // ++iLine;
     // }
+    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
+                      sfm_data.views.at(0).get(),
+                      sfm_data.s_root_path);
+    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
+                      sfm_data.views.at(105).get(),
+                      sfm_data.s_root_path);
+    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
+                      sfm_data.views.at(130).get(),
+                      sfm_data.s_root_path);
   }
 
   ceres::Problem problem;
@@ -540,6 +566,7 @@ bool Bundle_Adjustment_Ceres::Adjust
       {
       IndexT indexLine = lineCorrespondence.first;
       Eigen::Vector6d curLine3DEndpoints = all_3d_lines[indexLine];
+      std::cerr << curLine3DEndpoints << std::endl;
       map_lines[indexLine] = {curLine3DEndpoints(0), curLine3DEndpoints(1), curLine3DEndpoints(2),curLine3DEndpoints(3), curLine3DEndpoints(4),curLine3DEndpoints(5)};
     
       double * parameter_block = &map_lines.at(indexLine)[0];
@@ -677,7 +704,7 @@ bool Bundle_Adjustment_Ceres::Adjust
           double curLine[4] = {cur_2d_line(0), cur_2d_line(1), cur_2d_line(2), cur_2d_line(3)};
 
           ceres::CostFunction * cost_function_lines = 
-          new ceres::AutoDiffCostFunction<LineReprojectionConstraintCostFunction,2,3,6,6>(
+          new ceres::AutoDiffCostFunction<LineReprojectionConstraintCostFunction,4,3,6,6>(
             new LineReprojectionConstraintCostFunction(curLine));
 
           problem.AddResidualBlock(
@@ -809,7 +836,14 @@ bool Bundle_Adjustment_Ceres::Adjust
         intrinsic_it.second->updateFromParams(vec_params);
       }
     }
-
+    if (options.line_opt != Line_Parameter_Type::NONE){
+      for(auto & line_it : potential_matches){
+        const IndexT indexLine = line_it.first;
+        Eigen::Vector6d line_refined(map_lines.at(indexLine)[0],map_lines.at(indexLine)[1],map_lines.at(indexLine)[2],
+        map_lines.at(indexLine)[3],map_lines.at(indexLine)[4],map_lines.at(indexLine)[5]);
+        std::cout << " New line : " << line_refined << std::endl;
+      }
+    }
     // Structure is already updated directly if needed (no data wrapping)
 
     if (b_usable_prior)
