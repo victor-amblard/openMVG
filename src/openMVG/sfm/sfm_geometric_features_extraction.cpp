@@ -452,8 +452,13 @@ int getLineLineCorrespondence(const Eigen::Vector4d& cur2dSegment,
                               const Mat3& K,
                               const geometry::Pose3& pose)
 {
-    //TODO
-    return -1;
+    
+    for(const auto&elem: allVisible3dlines){
+        IndexT idx3dline = elem.first;
+        Eigen::Vector4d endpoints_3d = elem.second;
+
+    }
+    return 0;
 }
 bool isLineInFOV(const Eigen::Vector6d& line,
                  const IndexT width, 
@@ -463,10 +468,13 @@ bool isLineInFOV(const Eigen::Vector6d& line,
                  Eigen::Vector4d& endPoints)
 {
    
+    //TODO: How to ensure that the line is not behind the camera?
+
     Mat34 projMatrix;
     openMVG::P_From_KRt(K, pose.rotation(), pose.translation(), &projMatrix);
     const Vec3& ep_s(line.block(0,0,3,1));
     const Vec3& ep_e(line.block(3,0,3,1));
+
 
     Eigen::Vector2d projEndA = openMVG::Project(projMatrix, ep_s);
     Eigen::Vector2d projEndB = openMVG::Project(projMatrix, ep_e);
@@ -486,18 +494,23 @@ bool isLineInFOV(const Eigen::Vector6d& line,
         projEndB = projEndA;
         projEndA = tmp;
     }
-    if (projEndA(0) > width || projEndA(1) < 0 || projEndA(1) > height || projEndA(0) <0 || projEndA(2)<0)
+    bool ok = true;
+    if (projEndA(0) > width || projEndA(1) < 0 || projEndA(1) > height || projEndA(0) <0){
         endPoints.block(0,0,2,1) = p1;
-    else
+        ok=false;
+    }else
         endPoints.block(0,0,2,1) = projEndA.block(0,0,2,1);
 
-    if (projEndB(0) > width || projEndB(1) < 0 || projEndB(1) > height || projEndB(0) <0 || projEndB(2)<0)
-        endPoints.block(2,0,2,1) = p2;
+    if (projEndB(0) > width || projEndB(1) < 0 || projEndB(1) > height || projEndB(0) <0 )
+        if (!ok)
+            return false;
+        else
+            endPoints.block(2,0,2,1) = p2;
     else
         endPoints.block(2,0,2,1) = projEndB.block(0,0,2,1);
 
 
-    if (((endPoints(0)>=0 && endPoints(0) < width) || (endPoints(2)>=0 && endPoints(2) < width)) && (projEndA(2)>0 || projEndB(2)>0))
+    if (((endPoints(0)>=0 && endPoints(0) < width) || (endPoints(2)>=0 && endPoints(2) < width)))
         return true;
 
     return false;
@@ -513,14 +526,16 @@ std::vector<std::pair<IndexT, Eigen::Vector4d>> getAllVisibleLines(const Hash_Ma
         const auto curIdx = elem.first;
         const Eigen::Vector6d& l = elem.second;
         Eigen::Vector4d lineEndpoints;
-
+        std::cerr << view->id_view << std::endl;
         if(isLineInFOV(l, view->ui_width, view->ui_height, intr, pose, lineEndpoints)){
             if (!isLineOccluded()){
+                std::cout << "Visible!" << std::endl;
                 visibleLines.push_back(std::make_pair(curIdx, lineEndpoints));
             }
         }
     }
     return visibleLines;
 }
+
 }
 }
