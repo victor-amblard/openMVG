@@ -354,37 +354,15 @@ bool Bundle_Adjustment_Ceres::Adjust
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> res;
         openMVG::sfm::getLinesInImageAfm(curP.string(), res);
         std::vector<IndexT> tmpVectorIdx;
-        for(auto i=0;i<0;++i){
+        for(auto i=0;i<res.size();++i){
+          auto elem = res.at(i);
           tmpVectorIdx.push_back(curIdxLine);
-          // all_2d_lines.insert({curIdxLine, std::make_pair(v->id_view, Eigen::Vector4d(elem.first(0), elem.first(1), elem.second(0), elem.second(1)))});
+          all_2d_lines[curIdxLine] = std::make_pair(v->id_view, Eigen::Vector4d(elem.first(0), elem.first(1), elem.second(0), elem.second(1)));
           ++curIdxLine;
         }
+
         lines_2d_per_image.push_back(tmpVectorIdx);
     }
-    // Step 1: Load all lines from files
-    all_2d_lines[0] = std::make_pair(0, Eigen::Vector4d(476,312,485,2));
-
-    all_2d_lines[1] = std::make_pair(101, Eigen::Vector4d(43,302,47,240));
-    // all_2d_lines[7] = std::make_pair(101, Eigen::Vector4d(622,367,601,0));
-
-    all_2d_lines[2] = std::make_pair(130, Eigen::Vector4d(123,332,132,27));
-    all_2d_lines[3] = std::make_pair(140, Eigen::Vector4d(332,308,330,16));
-    all_2d_lines[5] = std::make_pair(150, Eigen::Vector4d(717,352,725,0));
-
-    all_2d_lines[4] = std::make_pair(5, Eigen::Vector4d(248,284,255,121));
-    // all_2d_lines[6] = std::make_pair(5, Eigen::Vector4d(514,355,548,1));
-
-
-    lines_2d_per_image.at(0).push_back(0);
-    lines_2d_per_image.at(5).push_back(4);
-    // lines_2d_per_image.at(5).push_back(6);
-    lines_2d_per_image.at(101).push_back(1);
-    // lines_2d_per_image.at(101).push_back(7);
-
-    lines_2d_per_image.at(130).push_back(2);
-    lines_2d_per_image.at(140).push_back(3);
-    lines_2d_per_image.at(150).push_back(5);
-
 
     // Step 2: Load all 3D lines from files 
     //Warning! Test 
@@ -418,13 +396,16 @@ bool Bundle_Adjustment_Ceres::Adjust
       const Pose3 pose = sfm_data.GetPoseOrDie(view_it.second.get());
       const Mat3 K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();
 
-      std::vector<std::pair<IndexT, Eigen::Vector4d>> projected_3d_lines = getAllVisibleLines(all_3d_lines, pose, K, view_it.second.get());
+      Hash_Map<IndexT, Eigen::Vector4d> projected_3d_lines = getAllVisibleLines(all_3d_lines, pose, K, view_it.second.get());
+      std::cerr << projected_3d_lines.size() << " 3D lines in FOV" << std::endl;
+      
       for(auto id_2d_segment: lines_2d_per_image.at(view_it.second->id_view)){
         Eigen::Vector4d cur_2d_segment = all_2d_lines.at(id_2d_segment).second;
         int res = getLineLineCorrespondence(cur_2d_segment, projected_3d_lines, K, pose, id_2d_segment);
+        
         if (res >= 0){
           potential_matches.at(res).second.push_back(id_2d_segment);
-          projections_3d_lines[res][view_it.second->id_view] = projected_3d_lines.at(res).second;
+          projections_3d_lines[res][view_it.second->id_view] = projected_3d_lines[res];
         }
       }
     }
@@ -477,10 +458,13 @@ bool Bundle_Adjustment_Ceres::Adjust
                       sfm_data.views.at(0).get(),
                       sfm_data.s_root_path);
     visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
-                      sfm_data.views.at(101).get(),
+                      sfm_data.views.at(5).get(),
                       sfm_data.s_root_path);
     visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
-                      sfm_data.views.at(150).get(),
+                      sfm_data.views.at(10).get(),
+                      sfm_data.s_root_path);
+    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
+                      sfm_data.views.at(101).get(),
                       sfm_data.s_root_path);
   }
 

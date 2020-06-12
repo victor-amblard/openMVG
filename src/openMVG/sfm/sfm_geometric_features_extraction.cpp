@@ -368,54 +368,74 @@ void loadAllAfMFiles(const std::vector<std::string>& filenames,
         getLinesInImageAfm(filename, allLines.at(i));
     }
 }
-std::pair<int,float> matchLine2Line(const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>& detectedLines,
-                                    const Eigen::Vector3d backProjectedLine)
+double projectPointOnLine2(const Eigen::Vector2d& point,
+                         const Eigen::Vector2d& pointOnLine,
+                         const Eigen::Vector2d& lineDirNormd,
+                         Eigen::Vector2d& targetPoint)
 {
-    const double thetaThreshold(25*M_PI/180); 
+    Eigen::Vector2d displacement(point-pointOnLine);
+    double coef = displacement.dot(lineDirNormd);
+    targetPoint = pointOnLine + coef*lineDirNormd;
+    return coef;
+}
+double matchLine2Line(const Eigen::Vector4d& segment_2d,
+                      const Eigen::Vector4d& projected_3d_line)
+{
+    const double thetaThreshold(30*M_PI/180); //Very conservative thresholds 
     const double distThreshold(100); 
-    return std::make_pair(0,0.f);
-    /*
-    Eigen::Vector2f curLDir(1, (proj3DLine.second(1)-proj3DLine.first(1))/(proj3DLine.second(0)-proj3DLine.first(0)));
-    Eigen::Vector2f tentLDir(1, (detected2DLine.second(1)-detected2DLine.first(1))/(detected2DLine.second(0)-detected2DLine.first(0)));
-    curLDir.normalize();
-    tentLDir.normalize();
+    const double overlapThreshold(0.3);
+    const double NO_MATCH(-1);
 
-    double thetaDist = std::acos(curLDir.dot(tentLDir)/(curLDir.norm()*tentLDir.norm()));
-    double dDist = pointToLineDist(detected2DLine.first, proj3DLine) + pointToLineDist(detected2DLine.second, proj3DLine);
-    //TODO: Just normalize it once
-    double tEnd = getParameterPointLine2(proj3DLine.first, proj3DLine.second, curLDir);
+    //Just as a convention, we set the starting point to be the lower x point
+    Eigen::Vector2d startPoint2d, endPoint2d, startPoint3d, endPoint3d;
+    startPoint2d = segment_2d.block(0,0,2,1);
+    endPoint2d = segment_2d.block(2,0,2,1);
+    startPoint3d = projected_3d_line.block(0,0,2,1);
+    endPoint3d = projected_3d_line.block(2,0,2,1);
 
-    Eigen::Vector2f startProj, endProj;
-    //Projection of 2D line endpoints to backprojected 3D line
-
-    projectPoint2Line2D(detected2DLine.first, proj3DLine.first, curLDir, startProj);
-    projectPoint2Line2D(detected2DLine.second, proj3DLine.first, curLDir, endProj);
-
-
-    double tStartProj = getParameterPointLine2(proj3DLine.first, startProj, curLDir);
-    double tEndProj = getParameterPointLine2(proj3DLine.first, endProj, curLDir);
-    if (tEndProj < tStartProj){
-        double tmp = tStartProj;
-        tStartProj = tEndProj;
-        tEndProj = tmp;
+    if (segment_2d(0) > segment_2d(2)){
+        startPoint2d = segment_2d.block(2,0,2,1);
+        endPoint2d = segment_2d.block(0,0,2,1);
+    }
+    if (projected_3d_line(0) > projected_3d_line(2)){
+        startPoint3d = projected_3d_line.block(2,0,2,1);
+        endPoint3d = projected_3d_line.block(0,0,2,1);
     }
 
-    double alphaEnd = std::max(0., std::min(1., tEndProj/tEnd));
-    double alphaStart = std::max(0., std::min(1., tStartProj/tEnd));
+    Eigen::Vector2d normalizedSegmentDir = (endPoint2d - startPoint2d).normalized();
+    Eigen::Vector2d normalizedLineDir = (endPoint3d - startPoint3d);
+    double tMax = normalizedLineDir.norm();
+    normalizedLineDir.normalize();
+    Eigen::Vector3d abcLine;
 
-    double lenOverlap = alphaEnd-alphaStart;
+    if (endPoint3d(0)-startPoint3d(0) > std::numeric_limits<double>::min()){
+        double alpha = (endPoint3d(1)-startPoint3d(1))/(endPoint3d(0)-startPoint3d(0));
+        abcLine = Eigen::Vector3d(alpha,-1,startPoint3d(1)-alpha*startPoint3d(0));
+    }else{
+        abcLine = Eigen::Vector3d(1,0,-startPoint3d(0));
+    }
 
-    bool overlaps = (lenOverlap > 0.2); //20% overlap at least
+    // Step 1: Estimate 2d endpoints' projection on projected 3d line
+    double tStart, tEnd;
+    Eigen::Vector2d startProj, endProj;
+    tStart = std::max(0., std::min(tMax, projectPointOnLine2(startPoint2d, startPoint3d, normalizedLineDir, startProj)));
+    tEnd = std::max(0., std::min(tMax, projectPointOnLine2(endPoint2d, startPoint3d, normalizedLineDir, endProj)));
+    // Step 2: Deduce the overlap length
+    double lenOverlap = std::fabs(tEnd - tStart)/tMax;
 
-    if (thetaDist < thetaThreshold && dDist < distThreshold && overlaps){
-        distance(0) = thetaDist;
-        distance(1) = dDist;
-        distance(2) = lenOverlap;
-        return std::make_pair(true, distance.norm());
-    } else {
-        return std::make_pair(false;
+    // Step 3: Get the direction difference
+    double theta = std::acos(normalizedSegmentDir.dot(normalizedLineDir));
 
-    }*/
+    // Step 4: Get the distance
+    Eigen::Vector3d middlePoint = (1/2*(startPoint2d + endPoint2d)).homogeneous();
+    double dist = std::fabs(abcLine.dot(middlePoint))/(abcLine.block(0,0,2,1)).norm();
+
+    if (theta < thetaThreshold && dist < distThreshold && lenOverlap > overlapThreshold){
+        return Eigen::Vector3d(theta/thetaThreshold, dist/distThreshold, lenOverlap/overlapThreshold).norm(); 
+    }else{
+        std::cerr << Eigen::Vector3d(theta, dist, lenOverlap) << std::endl;
+        return NO_MATCH;
+    }
 }
 
 void visualize3dLines(const std::vector<std::pair<Line, std::vector<int>>>* lines,
@@ -457,17 +477,25 @@ bool isLineOccluded(void)
     return false;
 }
 int getLineLineCorrespondence(const Eigen::Vector4d& cur2dSegment,
-                              const std::vector<std::pair<IndexT, Eigen::Vector4d>> allVisible3dlines,
+                              const Hash_Map<IndexT, Eigen::Vector4d>  allVisible3dlines,
                               const Mat3& K,
-                              const geometry::Pose3& pose)
+                              const geometry::Pose3& pose,
+                              IndexT id)
 {
-    
+    int iMini(-1);
+    double miniScore(std::numeric_limits<double>::max());
+
     for(const auto&elem: allVisible3dlines){
         IndexT idx3dline = elem.first;
         Eigen::Vector4d endpoints_3d = elem.second;
-
+        if (double curScore = matchLine2Line(cur2dSegment, endpoints_3d) >= 0){
+            if (curScore < miniScore){
+                miniScore = curScore;
+                iMini = idx3dline;
+            }
+        } 
     }
-    return 0;
+    return iMini;
 }
 bool isLineInFOV(const Eigen::Vector6d& line,
                  const IndexT width, 
@@ -524,12 +552,12 @@ bool isLineInFOV(const Eigen::Vector6d& line,
 
     return false;
 }
-std::vector<std::pair<IndexT, Eigen::Vector4d>> getAllVisibleLines(const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
+Hash_Map<IndexT, Eigen::Vector4d> getAllVisibleLines(const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
                         const geometry::Pose3& pose,
                         const Mat3& intr,
                         const View * view)
 {
-    std::vector<std::pair<IndexT, Eigen::Vector4d>> visibleLines;
+    Hash_Map<IndexT, Eigen::Vector4d> visibleLines;
 
     for (auto& elem: all_3d_lines){ 
         const auto curIdx = elem.first;
@@ -539,7 +567,7 @@ std::vector<std::pair<IndexT, Eigen::Vector4d>> getAllVisibleLines(const Hash_Ma
         if(isLineInFOV(l, view->ui_width, view->ui_height, intr, pose, lineEndpoints)){
             if (!isLineOccluded()){
                 std::cout << "Visible!" << std::endl;
-                visibleLines.push_back(std::make_pair(curIdx, lineEndpoints));
+                visibleLines[curIdx] =  lineEndpoints;
             }
         }
     }
@@ -563,12 +591,12 @@ void visualizeMatches(const std::vector<std::pair<IndexT, std::vector<IndexT>>>&
             if (all_2d_lines.at(line2dIdx).first == viewId){
                 valid3dLine = true;
                 Eigen::Vector4d line_2d_endpoints = all_2d_lines.at(line2dIdx).second;
-                cv::line(img, cv::Point(line_2d_endpoints(0), line_2d_endpoints(1)), cv::Point(line_2d_endpoints(2), line_2d_endpoints(3)), cv::Scalar(0,0,255), 1, CV_AA);
+                cv::line(img, cv::Point(line_2d_endpoints(0), line_2d_endpoints(1)), cv::Point(line_2d_endpoints(2), line_2d_endpoints(3)), cv::Scalar(0,0,255), 2, CV_AA);
             }
         }
         if (valid3dLine){
             const Eigen::Vector4d line_3d_endpoints = proj_3d_lines.at(line3dIdx).at(viewId);
-            cv::line(img, cv::Point(line_3d_endpoints(0), line_3d_endpoints(1)), cv::Point(line_3d_endpoints(2), line_3d_endpoints(3)), cv::Scalar(255,0,0), 1, CV_AA);
+            cv::line(img, cv::Point(line_3d_endpoints(0), line_3d_endpoints(1)), cv::Point(line_3d_endpoints(2), line_3d_endpoints(3)), cv::Scalar(255,0,0), 2, CV_AA);
 
         }
     }
@@ -576,5 +604,163 @@ void visualizeMatches(const std::vector<std::pair<IndexT, std::vector<IndexT>>>&
     cv::imshow(v->s_Img_path, img);
     cv::waitKey(0);
 }
+void testLineReprojectionCostFunction(const double * const cam_intrinsics,
+                                      const double * const cam_extrinsics,
+                                      const double * const line_3d_endpoint,
+                                      const double * m_line_2d_endpoints,
+                                      const View * v)
+{
+    const double * cam_R = cam_extrinsics;
+    Eigen::Map<const Eigen::Matrix<double, 3, 1>> cam_t(&cam_extrinsics[3]);
+
+    Eigen::Matrix<double, 3, 1> transformed_point_start, transformed_point_end;
+    // Rotate the point according the camera rotation
+    
+    ceres::AngleAxisRotatePoint(cam_R, line_3d_endpoint, transformed_point_start.data()); //3D starting point
+    ceres::AngleAxisRotatePoint(cam_R, &line_3d_endpoint[3], transformed_point_end.data()); //3D end point
+
+    // Apply the camera translation
+    transformed_point_start += cam_t;
+    transformed_point_end += cam_t;
+
+    // Transform the point from homogeneous to euclidean (undistorted point)
+    Eigen::Matrix<double, 2, 1> projected_point3d_start = transformed_point_start.hnormalized();
+    Eigen::Matrix<double, 2, 1> projected_point3d_end = transformed_point_end.hnormalized();
+
+    //--
+    // Apply intrinsic parameters
+    //--
+
+    const double& focal = cam_intrinsics[0];
+    const double& principal_point_x = cam_intrinsics[1];
+    const double& principal_point_y = cam_intrinsics[2];
+    // Apply focal length and principal point to get the final image coordinates
+    Eigen::Matrix<double,2,1> proj_3d_point_start(principal_point_x + projected_point3d_start.x() * focal,
+                                            principal_point_y + projected_point3d_start.y() * focal);
+
+    Eigen::Matrix<double,2,1> proj_3d_point_end(principal_point_x + projected_point3d_end.x() * focal,
+                                           principal_point_y + projected_point3d_end.y() * focal);
+
+    //Compute orthogonal projection of 2D point on a 2D line
+    const Eigen::Matrix<double,2,1> line_2d_start(m_line_2d_endpoints[0], m_line_2d_endpoints[1]);
+    const Eigen::Matrix<double,2,1> line_2d_end(m_line_2d_endpoints[2], m_line_2d_endpoints[3]);
+    
+    
+    //We project on m_line_2d_endpoint_start and end on the (finite) line formed by (proj_3d_point_start, proj_3d_point_end)
+    Eigen::Matrix<double,2,1> start_2d_proj_2d_line ;
+    Eigen::Matrix<double,2,1> end_2d_proj_2d_line;
+
+    std::cerr << proj_3d_point_start << std::endl;
+    std::cerr << proj_3d_point_end << std::endl;
+    std::cerr << " **** " << std::endl;
+    //Step 1: Compute the projection 
+    Eigen::Matrix<double,2,1> proj_3d_dir = proj_3d_point_end - proj_3d_point_start;
+
+
+    double t_start = (line_2d_start-proj_3d_point_start).y()/proj_3d_dir.y(); 
+    double t_end = (line_2d_end-proj_3d_point_start).y()/proj_3d_dir.y();
+
+    t_start = std::min(double(1), std::max(double(0),t_start));
+    t_end = std::min(double(1), std::max(double(0), t_end));
+
+    std::cerr << t_start << " " << t_end << " " << std::endl;
+
+    start_2d_proj_2d_line = proj_3d_point_start + t_start*proj_3d_dir;
+    end_2d_proj_2d_line = proj_3d_point_start + t_end*proj_3d_dir;
+
+    Eigen::Matrix<double,2,1> dir_2d = (line_2d_end - line_2d_start).normalized();
+
+    Eigen::Matrix<double,2,1> adjusted_2d_start = line_2d_start+(start_2d_proj_2d_line-line_2d_start).dot(dir_2d)*dir_2d;
+    Eigen::Matrix<double,2,1> adjusted_2d_end = line_2d_start+(end_2d_proj_2d_line-line_2d_start).dot(dir_2d)*dir_2d;
+
+    cv::Mat test = cv::imread("/home/victor/Data/Stages/MIT/newer_college_dataset/subset/infra1/subset/"+v->s_Img_path);
+    cv::line(test, cv::Point(m_line_2d_endpoints[0], m_line_2d_endpoints[1]), cv::Point(m_line_2d_endpoints[2], m_line_2d_endpoints[3]), cv::Scalar(255,0,0), 1, CV_AA);
+    cv::line(test, cv::Point(proj_3d_point_start.x(), proj_3d_point_start.y()), cv::Point(proj_3d_point_end.x(), proj_3d_point_end.y()), cv::Scalar(255,0,0), 1, CV_AA);
+    
+    // cv::circle(test, cv::Point(proj_3d_point_start.x(), proj_3d_point_start.y()), 3,cv::Scalar(0,255,0),2);
+    // cv::circle(test, cv::Point(proj_3d_point_end.x(), proj_3d_point_end.y()), 3,cv::Scalar(0,0,255),2);
+
+    cv::circle(test, cv::Point(start_2d_proj_2d_line.x(), start_2d_proj_2d_line.y()), 3,cv::Scalar(0,255,0),2);
+    cv::circle(test, cv::Point(end_2d_proj_2d_line.x(), end_2d_proj_2d_line.y()), 3,cv::Scalar(0,0,255),2);
+
+    cv::circle(test, cv::Point(adjusted_2d_start.x(), adjusted_2d_start.y()), 3,cv::Scalar(0,255,0),2);
+    cv::circle(test, cv::Point(adjusted_2d_end.x(), adjusted_2d_end.y()), 3,cv::Scalar(0,0,255),2);
+
+
+    cv::imshow("test",test);
+    cv::waitKey(0);
+    std::cerr << "Cost start: " << pow(start_2d_proj_2d_line.x() - adjusted_2d_start.x(),2)+ (start_2d_proj_2d_line.y() - adjusted_2d_start.y(),2)<< std::endl;
+    std::cerr << "Cost end: " << pow(end_2d_proj_2d_line.x() - adjusted_2d_end.x(),2)+ pow(end_2d_proj_2d_line.y() - adjusted_2d_end.y(),2) << std::endl;
+
+}
+void testLineReprojectionPlucker(const double * const cam_intrinsics,
+                                      const double * const cam_extrinsics,
+                                      const double * const line_3d_endpoint,
+                                      const double * m_line_2d_endpoints,
+                                      const View * v)
+{
+    const double * cam_R = cam_extrinsics;
+    Mat3 mat_r;
+    ceres::AngleAxisToRotationMatrix(cam_R, mat_r.data());
+
+    Eigen::Map<const Eigen::Matrix<double, 3, 1>> cam_t(&cam_extrinsics[3]);
+
+    Eigen::Matrix<double,3,3> K;
+    K << double(cam_intrinsics[0]), double(0), double(cam_intrinsics[1]),
+         double(0), double(cam_intrinsics[0]), double(cam_intrinsics[2]),
+         double(0), double(0), double(1);
+
+    Eigen::Matrix<double,4,4> projMat = Eigen::Matrix<double,4,4>::Zero();
+    Eigen::Matrix<double,4,4> RT_mat =  Eigen::Matrix<double,4,4>::Identity();
+    RT_mat.block(0,0,3,3) = mat_r;
+    RT_mat.block(0,3,3,1) = cam_t;
+    std::cerr << RT_mat << std::endl;
+    const Eigen::Matrix<double,3,4> Pmat = K * RT_mat.block(0,0,3,4);
+    projMat.block(0,0,3,4) = Pmat;
+    projMat(3,3) = double(1);
+
+    Eigen::Matrix<double,4,4>pluckerMatrix = Eigen::Matrix<double,4,4>::Zero();
+
+    for(size_t i=1;i<4;++i){
+      pluckerMatrix(i,0) = line_3d_endpoint[i-1];
+    }
+    pluckerMatrix(2,1) = line_3d_endpoint[3];
+    pluckerMatrix(3,1) = line_3d_endpoint[4];
+    pluckerMatrix(3,2) = line_3d_endpoint[5];
+
+    for(size_t i=0;i<4;++i)
+        for(size_t j=i;j<4;++j)
+            pluckerMatrix(i,j) = -pluckerMatrix(j,i);
+
+    const Eigen::Matrix<double,4,4> resProjLine = projMat*pluckerMatrix*projMat.transpose();
+    const Eigen::Matrix<double,3,1> lineCoeffs = Eigen::Matrix<double,3,1>(resProjLine(2,1),resProjLine(0,2), resProjLine(1,0));
+    
+    std::cerr << lineCoeffs << std::endl;
+    //Compute orthogonal projection of 2D point on a 2D line
+    const Eigen::Matrix<double,3,1> line_2d_start = Eigen::Matrix<double,2,1>(m_line_2d_endpoints[0], m_line_2d_endpoints[1]).homogeneous();
+    const Eigen::Matrix<double,3,1> line_2d_end = Eigen::Matrix<double,2,1>(m_line_2d_endpoints[2], m_line_2d_endpoints[3]).homogeneous();
+    
+    
+    //We project on m_line_2d_endpoint_start and end on the (finite) line formed by (proj_3d_point_start, proj_3d_point_end)
+    double dist_2d_3d_start;
+    double dist_2d_3d_end;
+
+    //Step 1: Compute the projection 
+    Eigen::Matrix<double,2,1> normalizationCoeff(lineCoeffs(0), lineCoeffs(1));
+
+    dist_2d_3d_start = (lineCoeffs.dot(line_2d_start))/normalizationCoeff.norm();
+    dist_2d_3d_end =  (lineCoeffs.dot(line_2d_end))/normalizationCoeff.norm();
+    std::cerr << dist_2d_3d_start << " " << dist_2d_3d_end << std::endl;
+    double x0 = 0;
+    double y0 = (-lineCoeffs(0)*x0-lineCoeffs(2))/lineCoeffs(1);
+    double x1 = 1000;
+    double y1 = (-lineCoeffs(0)*x1-lineCoeffs(2))/lineCoeffs(1);
+
+    cv::Mat test = cv::imread("/home/victor/Data/Stages/MIT/newer_college_dataset/subset/infra1/subset/"+v->s_Img_path);
+    cv::line(test, cv::Point(m_line_2d_endpoints[0], m_line_2d_endpoints[1]), cv::Point(m_line_2d_endpoints[2], m_line_2d_endpoints[3]), cv::Scalar(0,0,255), 2, CV_AA);
+    cv::line(test, cv::Point(x0, y0), cv::Point(x1,y1), cv::Scalar(255,0,0), 2, CV_AA);
+    cv::imshow("test",test);
+    cv::waitKey(0);
+}   
 }
 }

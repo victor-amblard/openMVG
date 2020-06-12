@@ -24,7 +24,8 @@
 
 #include <pcl/ModelCoefficients.h>
 
-
+#include <ceres/rotation.h>
+#include <ceres/types.h>
 
 
 namespace openMVG {
@@ -92,16 +93,18 @@ void loadAllAfMFiles(const std::vector<std::string>& filenames,
 
 /**
  * Robustly matches 3D lines from SfM point cloud and 2D lines detected with getLinesInImage
- * @return a pair, first element represents the index of the match and second element represents the confidence on the match
+ * @returns a double representing the score of the match
 */
-std::pair<int,float> matchLine2Line(const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>& detectedLines,
-                                    const Eigen::Vector3f backProjectedLine);
+double matchLine2Line(const Eigen::Vector4d& segment_2d,
+                      const Eigen::Vector4d& projected_3d_line);
+
 
 
 int getLineLineCorrespondence(const Eigen::Vector4d& cur2dSegment,
-                              const std::vector<std::pair<IndexT, Eigen::Vector4d>> allVisible3dlines,
+                              const Hash_Map<IndexT, Eigen::Vector4d>  allVisible3dlines,
                               const Mat3& K,
-                              const geometry::Pose3& pose);
+                              const geometry::Pose3& pose,
+                              IndexT id);
 
 /**
  * Takes the vector of all 3D lines and returns all the lines visible in the current view
@@ -112,7 +115,7 @@ int getLineLineCorrespondence(const Eigen::Vector4d& cur2dSegment,
  * The heuristic consists in looking at all the image features observed in the current view and in the vicinity of the 3D line and 
  * discard all lines for which no visual feature is found
 */ 
-std::vector<std::pair<IndexT, Eigen::Vector4d>> getAllVisibleLines(const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
+Hash_Map<IndexT, Eigen::Vector4d> getAllVisibleLines(const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
                                        const geometry::Pose3& pose,
                                     const Mat3& intr,
                                     const View * view);
@@ -139,5 +142,17 @@ void visualizeMatches(const std::vector<std::pair<IndexT, std::vector<IndexT>>>&
                       const Hash_Map<IndexT, Hash_Map<IndexT, Eigen::Vector4d>>& proj_3d_lines,
                       const View * v,
                       const std::string& rootPath);
+
+void testLineReprojectionCostFunction(const double * const cam_intrinsics,
+                                      const double * const cam_extrinsics,
+                                      const double * const line_3d_endpoint,
+                                      const double * m_line_2d_endpoints,
+                                      const View * v);
+
+void testLineReprojectionPlucker(const double * const cam_intrinsics,
+                                      const double * const cam_extrinsics,
+                                      const double * const line_3d_endpoint,
+                                      const double * m_line_2d_endpoints,
+                                      const View * v);
 }
 }
