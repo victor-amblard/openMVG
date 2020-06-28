@@ -30,7 +30,7 @@ option(OpenMVG_USE_OPENMP "Enable OpenMP parallelization" ON)
 # Opencv is not used by openMVG but some samples show how to use openCV
 #  and openMVG simultaneously
 # ==============================================================================
-option(OpenMVG_USE_OPENCV "Build or not opencv+openMVG samples programs" OFF)
+option(OpenMVG_USE_OPENCV "Build or not opencv+openMVG samples programs" ON)
 
 # ==============================================================================
 # Since OpenCV 3, SIFT is no longer in the default modules. See
@@ -51,7 +51,7 @@ foreach(v MAJOR MINOR REVISION)
   endif()
 endforeach()
 set(OPENMVG_VERSION ${OPENMVG_VERSION_MAJOR}.${OPENMVG_VERSION_MINOR}.${OPENMVG_VERSION_REVISION})
-
+set(TARGET_ARCHITECTURE "generic")
 # Default build is in Release mode
 if (NOT CMAKE_BUILD_TYPE AND NOT MSVC)
   set(CMAKE_BUILD_TYPE "Release")
@@ -108,18 +108,11 @@ if (UNIX AND NOT OpenMVG_BUILD_COVERAGE)
 endif ()
 
 # ==============================================================================
-# Check C++11 support
+# Check C++14 support
 # ==============================================================================
-include(CXX11)
-check_for_cxx11_compiler(CXX11_COMPILER)
-# If a C++11 compiler is available, then set the appropriate flags
-if (CXX11_COMPILER)
-  set(CMAKE_CXX_STANDARD 11)
-  set(CMAKE_CXX_STANDARD_REQUIRED ON)
-  set(CMAKE_CXX_EXTENSIONS OFF)
-else (CXX11_COMPILER)
-  message(FATAL_ERROR "A CXX11 compiler is required.")
-endif (CXX11_COMPILER)
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # ==============================================================================
 # OpenMP detection
@@ -255,6 +248,16 @@ else()
 endif()
 
 # ==============================================================================
+# PCL
+# ==============================================================================
+find_package(PCL 1.10 REQUIRED COMPONENTS common io visualization segmentation filters )
+if (NOT PCL_FOUND)
+  set(PCL_USE_INTERNAL_PCL ON)
+else()
+  set(PCL_INCLUDE_DIRS ${PCL_INCLUDE_DIR})
+add_definitions(${PCL_DEFINITIONS})
+endif()
+# ==============================================================================
 # Ceres
 # ==============================================================================
 # - external by default if CERES_DIR_HINTS or find_package found a valid Ceres
@@ -372,7 +375,7 @@ endif()
 # - only external and enabled only if OpenMVG_USE_OPENCV is set to ON
 # ==============================================================================
 if (OpenMVG_USE_OPENCV)
-  find_package( OpenCV QUIET )
+  find_package( OpenCV)
   if (NOT OpenCV_FOUND OR OpenCV_VERSION VERSION_LESS "3.0.0")
     message(STATUS "OpenCV was not found (note that OpenCV version >= 3.0.0 is required). -> Disabling OpenCV support.")
     UPDATE_CACHE_VARIABLE(OpenMVG_USE_OPENCV OFF)
@@ -380,7 +383,16 @@ if (OpenMVG_USE_OPENCV)
   endif()
 endif()
 
-
+# ==============================================================================
+# CGAL
+# =============================================================================
+find_package(CGAL REQUIRED COMPONENTS Core)
+ if(CGAL_FOUND)
+   add_definitions(-DCGAL_USE_BASIC_VIEWER )
+ else()
+   message("ERROR: this program requires CGAL and CGAL_Qt5 and will not be compiled.")
+ endif()
+# set(CGAL_INCLUDE_DIRS ${CGAL_INCLUDE_DIR})
 # ==============================================================================
 # Third-party libraries:
 # ==============================================================================
@@ -482,6 +494,12 @@ if (DEFINED OpenMVG_USE_INTERNAL_EIGEN)
   message(STATUS "EIGEN: " ${EIGEN_VERSION} " (internal)")
 else()
   message(STATUS "EIGEN: " ${EIGEN_VERSION} " (external)")
+endif()
+
+if (DEFINED OpenMVG_USE_INTERNAL_EIGEN)
+  message(STATUS "PCL: " ${PCL_VERSION} " (internal)")
+else()
+  message(STATUS "PCL: " ${PCL_VERSION} " (external)")
 endif()
 
 if (DEFINED OpenMVG_USE_INTERNAL_CERES)
