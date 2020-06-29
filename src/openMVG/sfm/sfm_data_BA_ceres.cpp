@@ -319,15 +319,14 @@ bool Bundle_Adjustment_Ceres::Adjust
   }
   
   Hash_Map<IndexT, Eigen::Vector6d> all_3d_lines;
-  Hash_Map<IndexT, Hash_Map<IndexT, Eigen::Vector4d>> projections_3d_lines;
-  Hash_Map<IndexT, std::pair<IndexT, Eigen::Vector4d>> all_2d_lines;
+  std::vector<Hash_Map<IndexT, Segment3D>> all_segments_map;
 
-  std::vector<std::pair<IndexT, std::vector<IndexT>>> potential_matches; //For each line L_j the vector l_x^{xj}
-
+  std::vector<std::vector<int>> all_clustered_segments;
+  
   if (options.use_lines_opt){
     std::cout << " Using lines opt" << std::endl;
     //Right now we are precomputing lines (i.e. fusing lidar clouds + getting SfM points on line)
-     std::vector<std::string> allFilenames;
+    std::vector<std::string> allFilenames;
     Eigen::Matrix4d lidar2camera;
     lidar2camera << -0.70992163, -0.02460003, -0.70385092, -0.04874569,
                      0.70414167, -0.00493623, -0.71004236, -0.05289342,  
@@ -336,7 +335,14 @@ bool Bundle_Adjustment_Ceres::Adjust
     std::vector<std::vector<IndexT>> lines_2d_per_image;
     lines_2d_per_image.reserve(sfm_data.GetViews().size());
 
+    std::vector<Endpoints2> defaultVector;
+    std::vector<std::vector<int>> segmentsInView(allFilenames.size());
+
     IndexT curIdxLine(0);
+    int curKey(0);
+    Mat3 K;
+    std::vector<std::pair<int, Segment3D>> allSegments;
+
     for(auto view_it:sfm_data.views){
         const View* v = view_it.second.get();
         std::string vPath = v->s_Img_path;
@@ -348,124 +354,56 @@ bool Bundle_Adjustment_Ceres::Adjust
         boost::filesystem::path curP;
         curP = sfm_data.s_root_path;
         curP /= afmPath;
-
+        // Change to SfM path
         std::cerr << curP.string() << std::endl;
 
+        // Load 2D segments LSD
         std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>> res;
-        openMVG::sfm::getLinesInImageAfm(curP.string(), res);
-        std::vector<IndexT> tmpVectorIdx;
-        for(auto i=0;i<res.size();++i){
-          auto elem = res.at(i);
-          tmpVectorIdx.push_back(curIdxLine);
-          all_2d_lines[curIdxLine] = std::make_pair(v->id_view, Eigen::Vector4d(elem.first(0), elem.first(1), elem.second(0), elem.second(1)));
-          ++curIdxLine;
-        }
-
-        lines_2d_per_image.push_back(tmpVectorIdx);
-    }
-
-    // Step 2: Load all 3D lines from files 
-    //Warning! Test 
-    all_3d_lines[0] = Eigen::Vector6d(-1.3,23.3,0.3,-0.5,22.2,8.3);
-    all_3d_lines[1] = Eigen::Vector6d(-17.3,46.8,-1.5,-17.4,46.6,11.5);
-
-    potential_matches.reserve(all_3d_lines.size());
-    std::cerr << all_2d_lines.size() << std::endl;
-
-    for (size_t iLin=0;iLin<all_3d_lines.size();++iLin){
-      potential_matches.push_back(std::make_pair(iLin, std::vector<IndexT>()));
-    }
-    // Step 3: Load all 3D clouds
-    //SFM cloud
-    PointCloudXYZ::Ptr sfmCloud(new PointCloudXYZ);
-
-    for(auto & structure_landmark_it : sfm_data.structure){
-        sfmCloud->push_back(pcl::PointXYZ(structure_landmark_it.second.X(0), structure_landmark_it.second.X(1), structure_landmark_it.second.X(2)));
-    }
-    //Lidar cloud
-    PointCloudXYZ::Ptr lidarCloud(new PointCloudXYZ); 
-    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_root_path, allFilenames);
-    openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera, lidarCloud);
-    std::cerr << "Fused point clouds " << std::endl;
-    openMVG::sfm::visualizePointCloud(lidarCloud);
-
-    //Get all potential matches
-    std::cout << "Computing 2D/3D line correspondences..." << std::endl;
-    for (const auto& view_it: sfm_data.GetViews()){
-
-      const Pose3 pose = sfm_data.GetPoseOrDie(view_it.second.get());
-      const Mat3 K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();
-
-      Hash_Map<IndexT, Eigen::Vector4d> projected_3d_lines = getAllVisibleLines(all_3d_lines, pose, K, view_it.second.get());
-      std::cerr << projected_3d_lines.size() << " 3D lines in FOV" << std::endl;
-      
-      for(auto id_2d_segment: lines_2d_per_image.at(view_it.second->id_view)){
-        Eigen::Vector4d cur_2d_segment = all_2d_lines.at(id_2d_segment).second;
-        int res = getLineLineCorrespondence(cur_2d_segment, projected_3d_lines, K, pose, id_2d_segment);
+        openMVG::sfm::loadLinesFromLSDFile(afmPath, vPath, defaultVector);
+        std::vector<Segment3D> resultLines;
+        K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();
         
-        if (res >= 0){
-          potential_matches.at(res).second.push_back(id_2d_segment);
-          projections_3d_lines[res][view_it.second->id_view] = projected_3d_lines[res];
+        // Load lidar scan
+        PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
+        boost::filesystem::path curLidarPath;
+        curLidarPath = sfm_data.s_root_path;
+        curLidarPath /= lPath;
+        readPointCloudXYZIRT(curLidarPath.string(), tmpCloud);
+
+        // Create 3D segments
+        associateEdgePoint2Line(v, defaultVector, tmpCloud, cv::imread(vPath), K, sfm_data.GetPoseOrDie(v), resultLines, lidar2camera);
+
+       for (auto elem: resultLines){
+            segmentsInView.at(v->id_view).push_back(curKey);
+            allSegments.push_back(std::make_pair(curKey, elem));
+            ++curKey;
         }
-      }
+
+        defaultVector.clear();
     }
-  
-   //Remove all lines matched in only one image
-   int iRemoveLines(0);
-   for(auto it = potential_matches.begin();it!=potential_matches.end();){
-     bool valid = false;
-     if (it->second.size()>0){
-        IndexT curImg = all_2d_lines.at(it->second.at(0)).first; //check that this is the image
-      for (auto iI = 1;iI<it->second.size();++iI)
-          if (all_2d_lines.at(it->second.at(iI)).first != curImg)
-            valid = true;
-     }else{
-       std::cerr << "No correspondence found for the current line " << std::endl;
-     }
-     if (!valid){
-       ++iRemoveLines;
-       it = potential_matches.erase(it);
-     }else{
-       ++it;
-     }
-   }
-  std::cout << "Removed " << iRemoveLines<< " 3D lines appearing in only one image..." << std::endl;
-  
-  
-   
-   // std::vector<Eigen::Vector6f> lines;
 
-    // std::vector<pcl::ModelCoefficients> planes;
-    // std::vector<PointCloudXYZ::Ptr, Eigen::aligned_allocator<PointCloudXYZ::Ptr>> outputClouds;
-    // openMVG::sfm::extractPlanesFromCloud(lidarCloud, planes, outputClouds);
-    // std::cerr << "Extracted planes..." << std::endl;
-    // openMVG::sfm::findLinesFromPlanes(planes, lines);
-    // std::cerr << "Found plane intersections..." << std::endl;
-    // openMVG::sfm::checkInlierLines(lines, sfmCloud, lineFeatureCorrespondences);
+    std::map<int, int> mapIdx;
 
-    // for(auto & structure_landmark_it : sfm_data.structure)
-        // landmarksLine.push_back(-1);
+    // Point cloud fusion
+    PointCloudXYZ::Ptr mergedCloud(new PointCloudXYZ); 
+    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_root_path, allFilenames);
+    openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera, mergedCloud);
+    std::cerr << "Fused point clouds " << std::endl;
+    openMVG::sfm::visualizePointCloud(mergedCloud);
 
-    // int iLine(0);
-    // for(auto elem: *lineFeatureCorrespondences){
-        // all3dLines.push_back(elem.first);
-        // for(auto landmark: elem.second){
-          // landmarksLine.at(landmark) = static_cast<IndexT>(iLine); 
-        // }
-        // ++iLine;
-    // }
-    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
-                      sfm_data.views.at(0).get(),
-                      sfm_data.s_root_path);
-    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
-                      sfm_data.views.at(5).get(),
-                      sfm_data.s_root_path);
-    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
-                      sfm_data.views.at(10).get(),
-                      sfm_data.s_root_path);
-    visualizeMatches(potential_matches,all_3d_lines, all_2d_lines,projections_3d_lines,
-                      sfm_data.views.at(101).get(),
-                      sfm_data.s_root_path);
+    // Get all correspondences
+    findCorrespondencesAcrossViews(allFilenames, allSegments, segmentsInView, sfm_data, K, all_clustered_segments, mapIdx);
+
+    // Group 3D lines
+    for (IndexT i = 0 ; i < all_clustered_segments.size(); ++i){
+      Hash_Map<IndexT, Segment3D> curMap;
+      for (IndexT j = 0 ; j < all_clustered_segments.at(i).size() ; ++j){
+        Segment3D curSeg = allSegments.at(mapIdx[all_clustered_segments.at(i).at(j)]).second;
+        curMap.at(all_clustered_segments.at(i).at(j)) = curSeg;
+      }
+      all_segments_map.push_back(curMap);
+    }
+    // group3DLines();
   }
 
   ceres::Problem problem;
@@ -558,13 +496,13 @@ bool Bundle_Adjustment_Ceres::Adjust
   }
 
   if (options.use_lines_opt){
-     for (const auto& lineCorrespondence: potential_matches)
+     for (const auto& line_it: all_3d_lines)
       {
-      IndexT indexLine = lineCorrespondence.first;
-      Eigen::Vector6d curLine3DEndpoints = all_3d_lines[indexLine];
-      Line l(curLine3DEndpoints.block(0,0,3,1), curLine3DEndpoints.block(3,0,3,1));
+      Eigen::Vector6d curLine3DEndpoints = line_it.second;
+      IndexT indexLine = line_it.first;
+      
+      MyLine l(curLine3DEndpoints.block(0,0,3,1), curLine3DEndpoints.block(3,0,3,1));
       Eigen::Vector6d pluckLine3D = l.pluckerVector;
-      std::cerr << pluckLine3D << std::endl;
       map_lines[indexLine] = {pluckLine3D(0), pluckLine3D(1), pluckLine3D(2),pluckLine3D(3), pluckLine3D(4),pluckLine3D(5)};
     
       double * parameter_block = &map_lines.at(indexLine)[0];
@@ -689,17 +627,19 @@ bool Bundle_Adjustment_Ceres::Adjust
 
   if (options.use_lines_opt){
         //Warning !! Needs to be changed
-    for (const auto& lineCorrespondence: potential_matches)
+    for (const auto& cur_3d_line: all_3d_lines)
     {
-      IndexT indexLine = lineCorrespondence.first;
+      IndexT indexLine = cur_3d_line.first;
 
-      for (const auto& line_it: lineCorrespondence.second){
+      for (const auto& line_it: all_segments_map.at(indexLine)){
 
-          IndexT curViewId = all_2d_lines.at(line_it).first;
+          IndexT idLine = line_it.first;
+
+          IndexT curViewId = IndexT(line_it.second.view);
           IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;
           IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
 
-          Eigen::Matrix<double,4,1> cur_2d_line = all_2d_lines.at(line_it).second;
+          Eigen::Matrix<double,4,1> cur_2d_line(line_it.second.endpoints2D.first(0), line_it.second.endpoints2D.first(1),line_it.second.endpoints2D.second(0),line_it.second.endpoints2D.second(1));
           // testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(indexLine)[0], curLine,sfm_data.views.at(curViewId).get());
 
           ceres::CostFunction * cost_function_lines = 
@@ -836,27 +776,25 @@ bool Bundle_Adjustment_Ceres::Adjust
       }
     }
     if (options.line_opt != Line_Parameter_Type::NONE){
-      for(auto & line_it : potential_matches){
+      for(auto & line_it : all_3d_lines){
         const IndexT indexLine = line_it.first;
         Eigen::Vector6d line_refined(map_lines.at(indexLine)[0],map_lines.at(indexLine)[1],map_lines.at(indexLine)[2],
         map_lines.at(indexLine)[3],map_lines.at(indexLine)[4],map_lines.at(indexLine)[5]);
         std::cout << " New line : " << line_refined << std::endl;
 
-      for (const auto& lineCorrespondence: potential_matches)
+      for (const auto& lineCorrespondence: all_segments_map.at(indexLine))
       {
         IndexT indexLine = lineCorrespondence.first;
 
-        for (const auto& line_it: lineCorrespondence.second){
+        IndexT curViewId = lineCorrespondence.second.view;
+        IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;
+        IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
 
-            IndexT curViewId = all_2d_lines.at(line_it).first;
-            IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;
-            IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
+        Endpoints2 cur_2d_line = lineCorrespondence.second.endpoints2D;
+        double curLine[4] = {cur_2d_line.first(0), cur_2d_line.first(1), cur_2d_line.second(0), cur_2d_line.second(1)};
 
-            Eigen::Matrix<double,4,1> cur_2d_line = all_2d_lines.at(line_it).second;
-            double curLine[4] = {cur_2d_line(0), cur_2d_line(1), cur_2d_line(2), cur_2d_line(3)};
-
-            testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(indexLine)[0], curLine,sfm_data.views.at(curViewId).get());
-            }   
+        testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(indexLine)[0], curLine,sfm_data.views.at(curViewId).get());
+            
          }
       }
     }

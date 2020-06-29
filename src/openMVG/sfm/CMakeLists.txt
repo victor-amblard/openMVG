@@ -33,6 +33,8 @@ target_link_libraries(openMVG_sfm
     ${CERES_LIBRARIES}
     ${PCL_LIBRARIES}
     ${OpenCV_LIBRARIES}
+    CGAL::CGAL
+    CGAL::CGAL_Core
     openMVG_graph
     openMVG_image
     openMVG_lInftyComputerVision
@@ -42,6 +44,9 @@ target_link_libraries(openMVG_sfm
 target_include_directories(openMVG_sfm
   PRIVATE
     ${CERES_INCLUDE_DIRS}
+    ${PCL_INCLUDE_DIRS}
+    ${CGAL_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIR}
   PUBLIC
     $<INSTALL_INTERFACE:include>
     $<INSTALL_INTERFACE:include/openMVG>

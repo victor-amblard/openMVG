@@ -255,7 +255,7 @@ if (NOT PCL_FOUND)
   set(PCL_USE_INTERNAL_PCL ON)
 else()
   set(PCL_INCLUDE_DIRS ${PCL_INCLUDE_DIR})
-add_definitions(${PCL_DEFINITIONS})
+  # add_definitions(${PCL_DEFINITIONS})
 endif()
 # ==============================================================================
 # Ceres
@@ -386,13 +386,13 @@ endif()
 # ==============================================================================
 # CGAL
 # =============================================================================
-find_package(CGAL REQUIRED COMPONENTS Core)
+find_package(CGAL REQUIRED COMPONENTS Core Qt5)
  if(CGAL_FOUND)
    add_definitions(-DCGAL_USE_BASIC_VIEWER )
  else()
    message("ERROR: this program requires CGAL and CGAL_Qt5 and will not be compiled.")
  endif()
-# set(CGAL_INCLUDE_DIRS ${CGAL_INCLUDE_DIR})
+ set(CGAL_INCLUDE_DIRS ${CGAL_INCLUDE_DIR})
 # ==============================================================================
 # Third-party libraries:
 # ==============================================================================
@@ -501,6 +501,7 @@ if (DEFINED OpenMVG_USE_INTERNAL_EIGEN)
 else()
   message(STATUS "PCL: " ${PCL_VERSION} " (external)")
 endif()
+message(STATUS "CGAL: " ${CGAL_VERSION})
 
 if (DEFINED OpenMVG_USE_INTERNAL_CERES)
   message(STATUS "CERES: " ${CERES_VERSION} " (internal)")

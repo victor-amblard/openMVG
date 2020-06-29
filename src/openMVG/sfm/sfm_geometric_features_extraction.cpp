@@ -4,296 +4,17 @@
 #include <omp.h>
 #endif
 
-namespace cv {
-    // calculates the median value of a single channel
-    // based on https://github.com/arnaudgelas/OpenCVExamples/blob/master/cvMat/Statistics/Median/Median.cpp
-    double median(const cv::Mat& channel )
-    {
-        double m = (channel.rows*channel.cols) / 2;
-        int bin = 0;
-        double med = -1.0;
 
-        int histSize = 256;
-        float range[] = { 0, 256 };
-        const float* histRange = { range };
-        bool uniform = true;
-        bool accumulate = false;
-        cv::Mat hist;
-        cv::calcHist( &channel, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange, uniform, accumulate );
-
-        for ( int i = 0; i < histSize && med < 0.0; ++i )
-        {
-            bin += cvRound( hist.at< float >( i ) );
-            if ( bin > m && med < 0.0 )
-                med = i;
-        }
-
-        return med;
-    }
-}
 
 namespace openMVG {
 namespace sfm {
 
-void extractPlanesFromCloud(PointCloudXYZ::Ptr filteredCloud,
-                            std::vector<pcl::ModelCoefficients>& planes,
-                            std::vector<PointCloudXYZ::Ptr, Eigen::aligned_allocator<PointCloudXYZ::Ptr> >& outputClouds)
-{
-
-    //Parameters
-    const int maxPlanes(10);
-    const int minCloudSize(50);
-    const float distanceThreshold(0.5);
-    const int maxIterations(300);
-    const Eigen::Vector3f axis(0,0,1.f);
-
-    PointCloudXYZ::Ptr cloud_p(new PointCloudXYZ), cloud_f(new PointCloudXYZ);
-
-   // Create the filtering object: downsample the dataset using a leaf size of 1cm
-
-   pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
-   pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
-   pcl::SACSegmentation<pcl::PointXYZ> seg;
-   seg.setOptimizeCoefficients(true);
-   seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
-   seg.setMethodType(pcl::SAC_RANSAC);
-   seg.setDistanceThreshold(distanceThreshold);
-   seg.setMaxIterations(maxIterations);
-
-   // Create the filtering object
-   pcl::ExtractIndices<pcl::PointXYZ> extract;
-   std::vector<PointCloudXYZ, Eigen::aligned_allocator<PointCloudXYZ> > clouds_vector;
-   std::vector<pcl::ModelCoefficients> normalCoeff;
-
-   seg.setAxis(axis);
-   seg.setEpsAngle(30.0f * (M_PI/180.0f) );
-
-   int i = 0, nr_points = (int)filteredCloud->points.size();
-
-    while((i < maxPlanes || maxPlanes==0) && (cloud_p->points.size() > minCloudSize || i==0)){
-
-       seg.setInputCloud(filteredCloud);
-       pcl::ScopeTime scopeTime("Test loop");
-       {
-           seg.segment(*inliers, *coefficients);
-       }
-       if (inliers->indices.size() == 0)
-       {
-           std::cerr << "Could not estimate a planar model for the given dataset." << std::endl;
-           break;
-       }
-
-
-       // Extract the inliers
-       extract.setInputCloud(filteredCloud);
-       extract.setIndices(inliers);
-       extract.setNegative(false);
-       extract.filter(*cloud_p);
-
-       std::cerr << "PointCloud representing the planar component: " << cloud_p->width * cloud_p->height << " data points." << std::endl;
-
-       extract.setInputCloud(filteredCloud);
-       extract.setIndices(inliers);
-       extract.setNegative(true);
-       extract.filter(*filteredCloud);
-
-       clouds_vector.push_back(*cloud_p);
-       normalCoeff.push_back(*coefficients);
-
-       ++i;
-    }
-    std::vector<Eigen::Vector6f> linesCoeff;
-    findLinesFromPlanes(normalCoeff, linesCoeff);
-    planes = normalCoeff;
-
-    for (size_t j=0;j<clouds_vector.size();++j){
-        PointCloudXYZ::Ptr curP(new PointCloudXYZ);
-        *curP = clouds_vector.at(j);
-        outputClouds.push_back(curP);
-    }
-}
-void findLinesFromPlanes(const std::vector<pcl::ModelCoefficients>& planesCoeff,
-                         std::vector<Eigen::Vector6f>& linesCoeff)
-{
-    for (size_t i=0;i<planesCoeff.size();++i){
-        auto coeffI = planesCoeff.at(i);
-        Eigen::Vector4f planeA(coeffI.values[0], coeffI.values[1], coeffI.values[2], coeffI.values[3]);
-
-        for (size_t j=i+1;j<planesCoeff.size();++j){
-            auto coeffJ = planesCoeff.at(j);
-            Eigen::Vector4f planeB(coeffJ.values[0], coeffJ.values[1], coeffJ.values[2], coeffJ.values[3]);
-            Eigen::VectorXf lineIJ;
-            bool foundInter = pcl::planeWithPlaneIntersection(planeA, planeB, lineIJ);
-            lineIJ.resize(6);
-            linesCoeff.push_back(lineIJ);
-        }
-    }
-}
-
-float computeAngularGap(PointCloudXYZ::Ptr inlierCloud, 
-                        const pcl::ModelCoefficients& planeCoeff, 
-                        const pcl::PointXYZ& poi)
-{
-    // Find 2 orthonormal vectors u,v
-    float curMaxi(0);
-    float prevTheta(0);
-    float curTheta(0);
-    Eigen::Vector3f ePOI(poi.getVector3fMap());
-
-    Eigen::Vector3f n(planeCoeff.values[0], planeCoeff.values[1], planeCoeff.values[2]);
-    n.normalize();
-    Eigen::Vector3f u(n(2), n(2), -n(0)-n(1));
-    Eigen::Vector3f v = n.cross(u);
-    u.normalize();
-    v.normalize();
-
-    // Compute max theta_{i+1}-theta_i
-    for(auto it=inlierCloud->begin();it!=inlierCloud->end();++it){
-        float ui = ((*it).getVector3fMap() - ePOI).dot(u);
-        float vi = ((*it).getVector3fMap() - ePOI).dot(v);
-        curTheta = std::atan(ui/vi);
-        curMaxi = std::max(curMaxi, curTheta - prevTheta);
-        prevTheta = curTheta;
-    }
-
-    return curMaxi;
-
-}
-
-void checkInlierLines(const std::vector<Eigen::Vector6f>& allLines,
-                      PointCloudXYZ::Ptr pCloud,
-                      std::vector<std::pair<Line, std::vector<int>>> * results)
-{
-    pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
-    kdtree.setInputCloud (pCloud);
-    pcl::ExtractIndices<pcl::PointXYZ> extract;
-    extract.setNegative(false);
-
-
-
-    const int maxIterationsPlaneRansac(100);
-    const float threshDist(3.f); //distance from plane/plane intersection
-    const float angularGapThresh(M_PI/2);
-    const int KNN(20); //# of NN considered in the local plane fitting -- depends on LIDAR resolution
-
-    //RANSAC initialization for plane estimation
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_PLANE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.2);
-    seg.setMaxIterations(maxIterationsPlaneRansac);
-
-    std::vector<std::pair<int, int>> pointsOnLine;
-
-    for (auto iCloud=0;iCloud < pCloud->points.size();++iCloud){
-
-        pcl::PointXYZ curPoint(pCloud->points[iCloud]);
-        #ifdef OPENMVG_USE_OPENMP
-        #pragma omp parallel for
-        #endif
-        for (size_t iLine = 0;iLine < allLines.size(); ++iLine){
-
-            Eigen::Vector3f lPoint = allLines.at(iLine).block(0,0,3,1);
-            Eigen::Vector3f lDir = allLines.at(iLine).block(3,0,3,1);
-
-            if (getDistToLine(lPoint, lDir, curPoint.getVector3fMap()) < threshDist){
-                std::vector<int> pointIdxNKNSearch(KNN);
-                std::vector<float> pointNKNSquaredDistance(KNN);
-                if (kdtree.nearestKSearch(curPoint, KNN, pointIdxNKNSearch, pointNKNSquaredDistance) > 0){
-
-                    PointCloudXYZ::Ptr tmpC(new PointCloudXYZ);
-                    tmpC->push_back(curPoint);
-                    for (auto iR = 0;iR < pointIdxNKNSearch.size();++iR){
-                        tmpC->push_back(pCloud->points.at(pointIdxNKNSearch.at(iR)));
-                    }
-
-                    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
-                    pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
-
-                    seg.setInputCloud(tmpC);
-                    seg.segment(*inliers, *coefficients);
-                    PointCloudXYZ::Ptr inliersCloud(new PointCloudXYZ);
-
-                    if (inliers->indices.size() > 0){
-                        extract.setInputCloud(tmpC);
-                        extract.setIndices(inliers);
-                        extract.filter(*inliersCloud);
-                        bool valid = std::find(inliers->indices.begin(), inliers->indices.end(), 0) != inliers->indices.end();
-                        if (valid){
-                            if (computeAngularGap(inliersCloud, *coefficients, curPoint) > angularGapThresh){
-                                #ifdef OPENMVG_USE_OPENMP
-                                #pragma omp critical
-                                #endif
-                                pointsOnLine.push_back(std::make_pair(iCloud, iLine));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    checkValidPointsOnLines(allLines, pCloud, pointsOnLine, results);
-}
-
-void checkValidPointsOnLines(const std::vector<Eigen::Matrix<float,6,1>>& allLines,
-                            PointCloudXYZ::Ptr pCloud,
-                            std::vector<std::pair<int, int>>& pointsOnLine,
-                            std::vector<std::pair<Line, std::vector<int>>> * results)
-{
-    const float threshDistLineRansac(0.2);
-    const int maxIterationsLineRansac(100);
-    const int minInliersLine(10);
-
-    //Initialization line RANSAC
-    pcl::SACSegmentation<pcl::PointXYZ> seg;
-    seg.setOptimizeCoefficients(true);
-    seg.setModelType(pcl::SACMODEL_LINE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(threshDistLineRansac);
-    seg.setMaxIterations(maxIterationsLineRansac);
-
-    std::cout << " Before removal there are " << allLines.size() << " lines" << std::endl;
-    for (auto iL=0;iL<allLines.size();++iL){
-
-        PointCloudXYZ::Ptr tmpCloud(new PointCloudXYZ);
-        std::vector <int> idxTmp;
-
-        for (auto i=0;i<pointsOnLine.size();++i){
-            if (pointsOnLine.at(i).second == iL){
-                tmpCloud->push_back(pCloud->points[pointsOnLine.at(i).first]);
-                idxTmp.push_back(pointsOnLine.at(i).first);
-            }
-         }
-        if (!tmpCloud->points.size())
-            continue;
-
-        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
-        pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
-
-        seg.setInputCloud(tmpCloud);
-        seg.segment(*inliers, *coefficients);
-        if(inliers->indices.size() < minInliersLine)
-            continue;
-
-        std::vector<int> validIdxLine;
-
-        for (auto jIndices=0;jIndices<inliers->indices.size();++jIndices){
-            validIdxLine.push_back(idxTmp.at(inliers->indices[jIndices]));
-        }
-
-        Line ln(*coefficients);
-        results->push_back(std::make_pair(ln, validIdxLine));
-    }
-}
-
-void getLinesInImageAfm(const std::string& filename,
-                        std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>& allLines,
-                        const bool& visualization)
+void loadLinesFromLSDFile(const std::string& filename,
+                          const std::string& imgFilename,
+                          std::vector<Endpoints2>& allLinesImage)
 {
     const float minLineLength(10.f);
-
+    
     std::ifstream inFile;
     inFile.open(filename);
 
@@ -305,305 +26,358 @@ void getLinesInImageAfm(const std::string& filename,
 
     while (std::getline(inFile, line)){
         std::stringstream ss(line);
-        double value;
-        double line[4] = {0.,0.,0.,0.};
+        float value;
+        float line[7] = {0.,0.,0.,0.,0.,0.,0.};
         int iCount(0);
         while (ss >> value){
             line[iCount] = value;
             ++iCount;
         }
-        if (iCount!=4)
+        if (iCount!=7)
             std::cerr << "Error when reading line from txt file!" << std::endl;
         else
             if (pow(line[2]-line[0],2.f)+pow(line[3]-line[1], 2.f) > pow(minLineLength,2.f))
-                allLines.push_back(std::make_pair(Eigen::Vector2d(line[0], line[1]), Eigen::Vector2d(line[2], line[3])));
+                allLinesImage.push_back(std::make_pair(Vec2(line[0], line[1]), Vec2(line[2], line[3])));
     }
+    processLinesLSD(imgFilename, allLinesImage);
 }
 
-void getLinesInImageCanny(const std::string& imgFn,
-                          std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>& allLines,
-                          const bool& visualization)
-{
-    const cv::Mat img(cv::imread(imgFn,0));
+void processLinesLSD(const std::string& imgFilename,
+                     std::vector<Endpoints2>& allLinesImage){
 
-    cv::Mat dst, cdst;
+    const double tDeltaAngle(10 * M_PI / 180.);
+    const double tDistEndpoints(20);
+    const double tDistOrthoEndpoints(5);
+    const double tDeltaL(1.3);
+    const double tMinLineFinal(70.);
+    const int nIt(1);
 
-    double v = cv::median(img);
-    int lower = int(std::max(0., (1.0 - 0.6) * v));
-    int upper = int(std::min(255., (1.0 + 0.6) * v));
+    cv::Mat srcImg = cv::imread(imgFilename);
 
-    cv::Canny(img, dst, lower,upper,3);
-    std::vector<cv::Vec4i> lines;
+    std::vector<Endpoints2> tmpBuffer;
+    tmpBuffer.assign(allLinesImage.begin(), allLinesImage.end());
 
-    cv::HoughLinesP(dst, lines, 1, 2*M_PI/180, 50, 60, 25);
-
-    cv::cvtColor(img, cdst, CV_GRAY2BGR);
-
-    for( size_t i = 0; i < lines.size(); i++ )
-    {
-        cv::Point pt1, pt2;
-
-        pt1.x = std::lrint(lines[i][0]);
-        pt1.y = std::lrint(lines[i][1]);
-        pt2.x = std::lrint(lines[i][2]);
-        pt2.y = std::lrint(lines[i][3]);
-        if (visualization)
-            cv::line(cdst, pt1, pt2, cv::Scalar(0,0,255), 1, CV_AA);
-
-      allLines.push_back(std::make_pair(Eigen::Vector2d(pt1.x, pt1.y), Eigen::Vector2d(pt2.x, pt2.y)));
-    }
-    if (visualization){
-        cv::imshow("canny", dst);
-        cv::waitKey();
-        cv::imshow("detected lines", cdst);
-        cv::waitKey(0);
-   }
-
-}
-void loadAllAfMFiles(const std::vector<std::string>& filenames,
-                     std::vector<std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>>& allLines)
-{
-    for (size_t i=0;i<filenames.size();++i){
-        const std::string& filename(filenames.at(i));
-        getLinesInImageAfm(filename, allLines.at(i));
-    }
-}
-double projectPointOnLine2(const Eigen::Vector2d& point,
-                         const Eigen::Vector2d& pointOnLine,
-                         const Eigen::Vector2d& lineDirNormd,
-                         Eigen::Vector2d& targetPoint)
-{
-    Eigen::Vector2d displacement(point-pointOnLine);
-    double coef = displacement.dot(lineDirNormd);
-    targetPoint = pointOnLine + coef*lineDirNormd;
-    return coef;
-}
-double matchLine2Line(const Eigen::Vector4d& segment_2d,
-                      const Eigen::Vector4d& projected_3d_line)
-{
-    const double thetaThreshold(30*M_PI/180); //Very conservative thresholds 
-    const double distThreshold(100); 
-    const double overlapThreshold(0.3);
-    const double NO_MATCH(-1);
-
-    //Just as a convention, we set the starting point to be the lower x point
-    Eigen::Vector2d startPoint2d, endPoint2d, startPoint3d, endPoint3d;
-    startPoint2d = segment_2d.block(0,0,2,1);
-    endPoint2d = segment_2d.block(2,0,2,1);
-    startPoint3d = projected_3d_line.block(0,0,2,1);
-    endPoint3d = projected_3d_line.block(2,0,2,1);
-
-    if (segment_2d(0) > segment_2d(2)){
-        startPoint2d = segment_2d.block(2,0,2,1);
-        endPoint2d = segment_2d.block(0,0,2,1);
-    }
-    if (projected_3d_line(0) > projected_3d_line(2)){
-        startPoint3d = projected_3d_line.block(2,0,2,1);
-        endPoint3d = projected_3d_line.block(0,0,2,1);
+    for (auto i=0;i<tmpBuffer.size();++i){
+        auto elem = tmpBuffer.at(i);
+        cv::line(srcImg, cv::Point(elem.first(0), elem.first(1)), cv::Point(elem.second(0), elem.second(1)), cv::Scalar(255,0,0));
     }
 
-    Eigen::Vector2d normalizedSegmentDir = (endPoint2d - startPoint2d).normalized();
-    Eigen::Vector2d normalizedLineDir = (endPoint3d - startPoint3d);
-    double tMax = normalizedLineDir.norm();
-    normalizedLineDir.normalize();
-    Eigen::Vector3d abcLine;
+    // cv::imshow("Raw image", srcImg);
+    // cv::waitKey(0);
 
-    if (endPoint3d(0)-startPoint3d(0) > std::numeric_limits<double>::min()){
-        double alpha = (endPoint3d(1)-startPoint3d(1))/(endPoint3d(0)-startPoint3d(0));
-        abcLine = Eigen::Vector3d(alpha,-1,startPoint3d(1)-alpha*startPoint3d(0));
-    }else{
-        abcLine = Eigen::Vector3d(1,0,-startPoint3d(0));
-    }
+    std::vector<Endpoints2> processBuffer;
+    std::vector<bool> seen;
+    
+    for (auto it=0;it<1;++it){
+        std::cerr << " ----- ----- ----- " << std::endl;
+        seen.reserve(tmpBuffer.size());
+        for(int i=0 ; i < tmpBuffer.size(); ++i)
+            seen.push_back(false);  
+        
+        allLinesImage = tmpBuffer;
 
-    // Step 1: Estimate 2d endpoints' projection on projected 3d line
-    double tStart, tEnd;
-    Eigen::Vector2d startProj, endProj;
-    tStart = std::max(0., std::min(tMax, projectPointOnLine2(startPoint2d, startPoint3d, normalizedLineDir, startProj)));
-    tEnd = std::max(0., std::min(tMax, projectPointOnLine2(endPoint2d, startPoint3d, normalizedLineDir, endProj)));
-    // Step 2: Deduce the overlap length
-    double lenOverlap = std::fabs(tEnd - tStart)/tMax;
+        for (size_t i1 = 0;i1 < tmpBuffer.size();++i1){
+            auto endpoints1 = tmpBuffer.at(i1);
+            auto n1 = endpoints2Normal(endpoints1);
+            
+            for(size_t i2 = i1+1;i2 < tmpBuffer.size();++i2){
+                if (seen.at(i2))
+                    continue;
+                auto endpoints2 = tmpBuffer.at(i2);
 
-    // Step 3: Get the direction difference
-    double theta = std::acos(normalizedSegmentDir.dot(normalizedLineDir));
+                double angle = angleBetweenLines(endpoints1, endpoints2);
 
-    // Step 4: Get the distance
-    Eigen::Vector3d middlePoint = (1/2*(startPoint2d + endPoint2d)).homogeneous();
-    double dist = std::fabs(abcLine.dot(middlePoint))/(abcLine.block(0,0,2,1)).norm();
+                // If angle < thresh angle
+                if (angle < tDeltaAngle){
+                    
+                    Vec2 ort(-n1(1), n1(0));
+                    bool allDists[4] = {((endpoints1.first-endpoints2.first).norm() < tDistEndpoints) && (std::fabs((endpoints1.first-endpoints2.first).dot(ort)) < tDistOrthoEndpoints),
+                                        ((endpoints1.first-endpoints2.second).norm() < tDistEndpoints)&& (std::fabs((endpoints1.first-endpoints2.second).dot(ort)) < tDistOrthoEndpoints),
+                                        ((endpoints1.second-endpoints2.first).norm() < tDistEndpoints) &&  (std::fabs((endpoints1.second-endpoints2.first).dot(ort)) < tDistOrthoEndpoints),
+                                        ((endpoints1.second-endpoints2.second).norm() < tDistEndpoints) &&  (std::fabs((endpoints1.second-endpoints2.second).dot(ort)) < tDistOrthoEndpoints)};
 
-    if (theta < thetaThreshold && dist < distThreshold && lenOverlap > overlapThreshold){
-        return Eigen::Vector3d(theta/thetaThreshold, dist/distThreshold, lenOverlap/overlapThreshold).norm(); 
-    }else{
-        std::cerr << Eigen::Vector3d(theta, dist, lenOverlap) << std::endl;
-        return NO_MATCH;
-    }
-}
-
-void visualize3dLines(const std::vector<std::pair<Line, std::vector<int>>>* lines,
-                      PointCloudXYZ::Ptr& cloud,
-                      std::vector<Eigen::Vector6f>& intersections)
-{
-    pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
-    viewer->setBackgroundColor (0, 0, 0);
-    pcl::RGB rgb_color;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr coloredCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-
-    int k(0);
-
-    for (size_t i=0;i<lines->size();++i){
-        auto elem = lines->at(i);
-        std::vector<int> curIdx = elem.second;
-        rgb_color = pcl::GlasbeyLUT::at(k);
-        for (auto pt: curIdx){
-            pcl::PointXYZ curPoint(cloud->points[pt]);
-            coloredCloud->push_back(pcl::PointXYZRGB(curPoint.x, curPoint.y, curPoint.z, rgb_color.r, rgb_color.g, rgb_color.b));
-        }
-        ++k;
-    }
-
-    viewer->addPointCloud<pcl::PointXYZ>(cloud, "global");
-    viewer->addPointCloud<pcl::PointXYZRGB>(coloredCloud, "lines");
-
-    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "lines");
-    while (!viewer->wasStopped ())
-     {
-       viewer->spinOnce (100);
-     };
-}
-
-
-bool isLineOccluded(void)
-{
-    //TODO
-    return false;
-}
-int getLineLineCorrespondence(const Eigen::Vector4d& cur2dSegment,
-                              const Hash_Map<IndexT, Eigen::Vector4d>  allVisible3dlines,
-                              const Mat3& K,
-                              const geometry::Pose3& pose,
-                              IndexT id)
-{
-    int iMini(-1);
-    double miniScore(std::numeric_limits<double>::max());
-
-    for(const auto&elem: allVisible3dlines){
-        IndexT idx3dline = elem.first;
-        Eigen::Vector4d endpoints_3d = elem.second;
-        if (double curScore = matchLine2Line(cur2dSegment, endpoints_3d) >= 0){
-            if (curScore < miniScore){
-                miniScore = curScore;
-                iMini = idx3dline;
+                    if (allDists[0] || allDists[1] || allDists[2] || allDists[3]){
+                        bool valid = false;
+                        if ((allDists[0] && allDists[3]) || (allDists[1] && allDists[2])){ //parallel lines
+                            //We keep the longest line
+                            double l1 = (endpoints1.second-endpoints1.first).norm();
+                            double l2 = (endpoints2.second-endpoints2.first).norm();
+                            double deltaL = std::max(l1, l2)/ std::min(l1,l2);
+                            if (deltaL > tDeltaL){
+                                continue;
+                            }
+                            if (l1 > l2){
+                                processBuffer.push_back(tmpBuffer.at(i1));
+                                valid = true;
+                            }else{
+                                processBuffer.push_back(tmpBuffer.at(i2));
+                                valid = true;
+                            }
+                        }else{ //longer lines
+                            if (allDists[0] && !allDists[1] && !allDists[2] && !allDists[3]){
+                                processBuffer.push_back(std::make_pair(endpoints1.second, endpoints2.second));
+                                valid = true;
+                            }if (allDists[1] && !allDists[0] && !allDists[2] && !allDists[3]){
+                                processBuffer.push_back(std::make_pair(endpoints1.second, endpoints2.first));
+                                valid = true;
+                            }if (allDists[2] && !allDists[0] && !allDists[1] && !allDists[3]){
+                                processBuffer.push_back(std::make_pair(endpoints1.first, endpoints2.second));
+                                valid = true;
+                            }if (allDists[3] && !allDists[1] && !allDists[2] && !allDists[0]){
+                                processBuffer.push_back(std::make_pair(endpoints1.first, endpoints2.first));
+                                valid = true;
+                            }
+                        }
+                        if (valid){
+                            seen.at(i2) = true;
+                            seen.at(i1) = true;
+                        }
+                        break;
+                    }
+                }
             }
-        } 
+            if (!seen.at(i1))
+                processBuffer.push_back(tmpBuffer.at(i1));
+
+
+        }
+        seen.clear();
+        tmpBuffer.clear();
+        tmpBuffer = processBuffer;
+        processBuffer.clear();
+      }
+      
+    allLinesImage.clear();
+    for (auto elem: tmpBuffer){
+        if ((elem.first-elem.second).norm() > tMinLineFinal){
+            allLinesImage.push_back(elem);
+        }
     }
-    return iMini;
+    cv::Mat debug = cv::Mat(srcImg.size().height, srcImg.size().width, CV_8UC3, cv::Scalar(255,255,255));
+
+    for (auto i=0;i<allLinesImage.size();++i){
+        auto elem = allLinesImage.at(i);
+        cv::line(srcImg, cv::Point(elem.first(0), elem.first(1)), cv::Point(elem.second(0), elem.second(1)), cv::Scalar(0,0,255));
+        cv::line(debug, cv::Point(elem.first(0), elem.first(1)), cv::Point(elem.second(0), elem.second(1)), cv::Scalar(0,0,0),2);
+
+    }
+    // cv::imshow("Modified image", debug);
+    // cv::waitKey(0);
+
 }
-bool isLineInFOV(const Eigen::Vector6d& line,
-                 const IndexT width, 
-                 const IndexT height,
-                 const Mat3& K,
-                 const geometry::Pose3& pose,
-                 Eigen::Vector4d& endPoints)
+bool getBoundPoints(const Vec3& lineProj,
+                  const int width,
+                  const int height,
+                  Endpoints2& projPoints)
 {
-   
-    //TODO: How to ensure that the line is not behind the camera?
 
-    Mat34 projMatrix;
-    openMVG::P_From_KRt(K, pose.rotation(), pose.translation(), &projMatrix);
-    const Vec3& ep_s(line.block(0,0,3,1));
-    const Vec3& ep_e(line.block(3,0,3,1));
+    CGAL_K::Point_2 topleftImage((CGAL_K::RT)(0), (CGAL_K::RT)(0));
+    CGAL_K::Point_2 bottomRightImage((CGAL_K::RT)width, (CGAL_K::RT)height);
 
+    CGAL_K::Iso_rectangle_2 imageBounds(topleftImage, bottomRightImage);
+    CGAL_K::Line_2 line((CGAL_K::RT)lineProj.x(), (CGAL_K::RT)lineProj.y(), (CGAL_K::RT)lineProj.z());
 
-    Eigen::Vector2d projEndA = openMVG::Project(projMatrix, ep_s);
-    Eigen::Vector2d projEndB = openMVG::Project(projMatrix, ep_e);
-    double coefDir = (projEndB(1)-projEndA(1))/(projEndB(0)-projEndA(0));
-
-    const Eigen::Vector3d lineCoeffs = Eigen::Vector3d(coefDir, 1, -coefDir*projEndA(0)-projEndA(1));
-    Eigen::Vector2d p1;
-    Eigen::Vector2d p2;
-    p1(1) = 0;
-    p2(1) = height;
-    p1(0) = (-lineCoeffs(1)*p1.y()-lineCoeffs(2))/lineCoeffs(0);
-    p2(0) = (-lineCoeffs(1)*p2.y()-lineCoeffs(2))/lineCoeffs(0);
-
-    if (projEndA(1) > projEndB(1)){
-        Eigen::Vector2d tmp;
-        tmp = projEndB;
-        projEndB = projEndA;
-        projEndA = tmp;
-    }
-    bool ok = true;
-    if (projEndA(0) > width || projEndA(1) < 0 || projEndA(1) > height || projEndA(0) <0){
-        endPoints.block(0,0,2,1) = p1;
-        ok=false;
-    }else
-        endPoints.block(0,0,2,1) = projEndA.block(0,0,2,1);
-
-    if (projEndB(0) > width || projEndB(1) < 0 || projEndB(1) > height || projEndB(0) <0 )
-        if (!ok)
+    auto resultInter = CGAL::intersection(imageBounds, line);
+    if (resultInter){
+        if (const CGAL_K::Point_2* p = boost::get<CGAL_K::Point_2>(&*resultInter)){
             return false;
+        }else{
+            const CGAL_K::Segment_2* r = boost::get<CGAL_K::Segment_2>(&*resultInter);
+                projPoints.first = Eigen::Vector2d(CGAL::to_double(r->source().x()), CGAL::to_double(r->source().y()));
+                projPoints.second = Eigen::Vector2d(CGAL::to_double(r->target().x()), CGAL::to_double(r->target().y()));
+                return true;
+            }
+    }else{
+       return false;
+    }
+}
+
+//Checked
+std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
+                                                  const SfM_Data& sfm_data,
+                                                  const Mat3& K)
+{
+
+    std::vector<std::pair<int,bool>> result;
+
+     for (const auto& view_it: sfm_data.GetViews()){
+
+        const View * view = view_it.second.get();
+        const Pose3& transform = sfm_data.GetPoseOrDie(view_it.second.get());
+        const Eigen::Matrix4d EigTransform = convertRTEigen(transform);
+
+        geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
+        Mat34 projMatrix;
+        Mat4 projMatrix4 = Mat4::Identity();
+        projMatrix4.block(0,0,3,4) = projMatrix;
+
+        openMVG::P_From_KRt(K, pose.rotation(), pose.translation(), &projMatrix);
+
+        MyLine segmentW(segment.endpoints3D.first, segment.endpoints3D.second);
+        Vec3 backProjLine = segmentW.getProjection(projMatrix4);
+        Vec2 normal = equation2Normal2D(backProjLine);
+
+        Vec3 backProjStart = projectW2I(segment.endpoints3D.first, projMatrix);
+        Vec3 backProjEnd = projectW2I(segment.endpoints3D.second, projMatrix);
+
+        //First thing to check: if infinite line's projection lies inside the image
+        Endpoints2 projBoundPoints;
+        bool isInFov = getBoundPoints(backProjLine, view->ui_width, view->ui_height, projBoundPoints);
+        if (!isInFov || (backProjStart.z() < 0 && backProjEnd.z() < 0))
+            continue;
+
+        //Second check: Is the finite segment visible in the image
+        double tA = 0;
+        double tB = getCoeffLine(backProjEnd.block(0,0,2,1), normal, backProjStart.block(0,0,2,1));
+        double tStart = getCoeffLine(projBoundPoints.first, normal, backProjStart.block(0,0,2,1));
+        double tEnd = getCoeffLine(projBoundPoints.second, normal, backProjStart.block(0,0,2,1));
+
+        if (tEnd < tStart)
+            std::swap(tStart, tEnd);
+        if (tB < tA)
+           std::swap(tA, tB);
+        //Valid if tA <= tStart <= tEnd <= tB (both endpoints outside image) or tA <= tStart <= tB <= tEnd (1 endpoint outside) or tStart <= tA <= tB <= tEnd (both in image)
+        if (!(tA <= tStart && tB <= tStart) && !(tA >= tEnd && tB >= tEnd)){
+            if ((tA <= tStart && tB >= tEnd) || (tA <= tStart && tB <= tEnd)){ //partial visibility
+                result.push_back(std::make_pair(view->id_view, false));
+            }else{ //entirely visible
+                result.push_back(std::make_pair(view->id_view, true));
+            }
+        }
+    }
+
+    return result;
+}
+//Checked
+bool isMatched(const Segment3D& curSegment,
+              const Segment3D& refSegment,
+              const Pose3& transformWF,
+              const int w,
+              const int h,
+              bool completeVisibility,
+              const Mat3& K){
+    
+    Mat34 proj2Ref;
+    openMVG::P_From_KRt(K, transformWF.rotation(), transformWF.translation(), &proj2Ref);
+    Eigen::Matrix4d proj2Ref4 = Eigen::Matrix4d::Identity();
+    proj2Ref4.block(0,0,3,4) = proj2Ref;
+
+    //Criterion #1: Angle
+    MyLine curSegmentW(curSegment.endpoints3D.first, curSegment.endpoints3D.second);
+    Vec3 abcCur = curSegmentW.getProjection(proj2Ref4);
+    Vec2 normalCur = Vec2(-abcCur(1), abcCur(0)).normalized();
+    Vec2 normalRef = endpoints2Normal(refSegment.endpoints2D);
+    
+    float relTheta = CLIP_ANGLE(std::acos(normalCur.dot(normalRef))) / PARAMS::tDeltaAngleAssociation;
+
+    // Criterion #2: Distance
+    Vec3 reprojStart = projectW2I(curSegment.endpoints3D.first, proj2Ref);
+    Vec3 reprojEnd = projectW2I(curSegment.endpoints3D.second, proj2Ref);
+
+    Endpoints2 endpointsCur = std::make_pair(reprojStart.block(0,0,2,1), reprojStart.block(0,0,2,1));
+
+    double totalDistance  = distPoint2Line2D((endpointsCur.first+endpointsCur.second)/2, refSegment.endpoints2D.first, normalRef);
+    totalDistance /= PARAMS::tDistanceLineCorrespondence;
+
+    // Criterion #3: Overlap (in case of complete visibility)
+    double normCurSegment = (endpointsCur.second - endpointsCur.first).norm();
+    double normRefSegment = (curSegment.endpoints2D.second - curSegment.endpoints2D.first).norm();
+    double overlap = std::fabs(normCurSegment - normRefSegment) / normRefSegment;
+
+    // std::cerr << "Score: dist = " << totalDistance << " | theta = " << relTheta << " | overlap " << overlap << "  " << completeVisibility << std::endl;
+    return (totalDistance < 1) && (relTheta < 1) && (!completeVisibility || (overlap > PARAMS::tMaxRelativeOverlap));
+}
+
+//Checked
+void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
+                                    std::vector<std::pair<int, Segment3D>>& allSegments,
+                                    const std::vector<std::vector<int>>& segmentsInView,
+                                    const SfM_Data& sfm_data,
+                                    const Mat3& K,
+                                    std::vector<std::vector<int>>&finalLines,
+                                    std::map<int, int>& mapSegment)
+{
+
+    
+    std::cerr << "There are " << allSegments.size() << " 3D segments in the dataset" << std::endl;
+
+    std::sort(allSegments.begin(), allSegments.end(), segmentComp); //sort by desc length
+    std::vector<std::vector<int>> lineClusters;
+
+    std::vector<int> clustersSegment(allSegments.size());
+    int rank[10000];
+    for (unsigned int i=0;i<allSegments.size();++i){
+        clustersSegment.at(i) = i;
+        rank[i] = 1;
+    }
+
+    for (unsigned int iSegment = 0; iSegment < allSegments.size() ; ++iSegment)
+        mapSegment[allSegments.at(iSegment).first] = iSegment;
+
+    for(unsigned int iSegment = 0; iSegment < allSegments.size();++iSegment)
+    {
+        int curIdSegment = allSegments.at(iSegment).first;
+        const Segment3D& curSegment(allSegments.at(iSegment).second);
+        curSegment.debug(curIdSegment);
+        
+        // const cv::Mat img = cv::imread(filenames.at(curSegment.view));
+
+        std::vector<std::pair<int, bool>> validViewsReprojection = getViewsSegment(curSegment, sfm_data, K);
+
+        std::cerr << "View # " ;
+        if (std::find(validViewsReprojection.begin(), validViewsReprojection.end(), std::make_pair(curSegment.view, true)) == validViewsReprojection.end())
+            std::cerr << "Error ! My view is not in the set of visible views!" << std::endl;
+        for (unsigned int iView = 0 ; iView < validViewsReprojection.size();++iView)
+        {
+            int nView = validViewsReprojection.at(iView).first;
+            std::cerr << nView << " ";
+            const int width = sfm_data.GetViews().at(curSegment.view).get()->ui_width;
+            const int height = sfm_data.GetViews().at(curSegment.view).get()->ui_height;
+
+            if (nView != curSegment.view)
+            {
+                for (unsigned int iPotentialMatch = 0; iPotentialMatch < segmentsInView.at(nView).size() ; ++iPotentialMatch)
+                {
+                    const View * viewP = sfm_data.GetViews().at(nView).get();
+                    const Pose3& curTF = sfm_data.GetPoseOrDie(viewP);
+                    int segmentId = segmentsInView.at(nView).at(iPotentialMatch);
+                    std::cerr << segmentId << " " ;
+                    bool iMatch = isMatched(allSegments.at(mapSegment[segmentId]).second, curSegment, curTF, 
+                    width, height, validViewsReprojection.at(iView).second, K);
+
+                    if (iMatch)
+                    {
+                        std::cerr << "Match! (" << curIdSegment << "," << segmentId << ")" << std::endl;
+                        joinSets(curIdSegment, segmentId, clustersSegment, rank);
+                    }
+                }
+            }
+        }
+        std::cerr << std::endl;
+        /** 
+        cv::line(img, cv::Point(curSegment.endpoints2D.first(0), curSegment.endpoints2D.first(1)), cv::Point(curSegment.endpoints2D.second(0), curSegment.endpoints2D.second(1)), cv::Scalar(255,255,255));
+        cv::imshow("["+std::to_string(curIdSegment)+"] - View # "+std::to_string(curSegment.view), img);
+        cv::waitKey(0);
+        **/ 
+    }
+    finalLines = std::vector<std::vector<int>> (allSegments.size());
+
+    for (unsigned int i = 0; i < clustersSegment.size(); ++i){
+        int idRoot = root(i, clustersSegment);
+        finalLines.at(idRoot).push_back(i);
+    }
+    for (auto it = finalLines.begin(); it!=finalLines.end();){
+        std::cerr << "Cur line has " << it->size() << " views in sight" << std::endl;
+        if (it->size() >= PARAMS::tMinViewsLine)
+            ++it;
         else
-            endPoints.block(2,0,2,1) = p2;
-    else
-        endPoints.block(2,0,2,1) = projEndB.block(0,0,2,1);
+            it = finalLines.erase(it);
 
-
-    if (((endPoints(0)>=0 && endPoints(0) < width) || (endPoints(2)>=0 && endPoints(2) < width)))
-        return true;
-
-    return false;
-}
-Hash_Map<IndexT, Eigen::Vector4d> getAllVisibleLines(const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
-                        const geometry::Pose3& pose,
-                        const Mat3& intr,
-                        const View * view)
-{
-    Hash_Map<IndexT, Eigen::Vector4d> visibleLines;
-
-    for (auto& elem: all_3d_lines){ 
-        const auto curIdx = elem.first;
-        const Eigen::Vector6d& l = elem.second;
-        Eigen::Vector4d lineEndpoints;
-        std::cerr << view->id_view << std::endl;
-        if(isLineInFOV(l, view->ui_width, view->ui_height, intr, pose, lineEndpoints)){
-            if (!isLineOccluded()){
-                std::cout << "Visible!" << std::endl;
-                visibleLines[curIdx] =  lineEndpoints;
-            }
-        }
     }
-    return visibleLines;
+    std::cerr << "After fusion and thresholding there are " << finalLines.size() << " lines found" << std::endl;
+
 }
-void visualizeMatches(const std::vector<std::pair<IndexT, std::vector<IndexT>>>& matches,
-                      const Hash_Map<IndexT, Eigen::Vector6d>& all_3d_lines,
-                      const Hash_Map<IndexT, std::pair<IndexT, Eigen::Vector4d>>& all_2d_lines,
-                      const Hash_Map<IndexT, Hash_Map<IndexT, Eigen::Vector4d>>& proj_3d_lines,
-                      const View * v,
-                      const std::string& rootPath)
-{
-    IndexT viewId = v->id_view;
-    std::string fn = rootPath + "/"+v->s_Img_path;
-    cv::Mat img = cv::imread(fn);
 
-    for(size_t i=0;i<matches.size();++i){
-        bool valid3dLine = false;
-        IndexT line3dIdx = matches.at(i).first;
-        for (IndexT line2dIdx: matches.at(i).second){
-            if (all_2d_lines.at(line2dIdx).first == viewId){
-                valid3dLine = true;
-                Eigen::Vector4d line_2d_endpoints = all_2d_lines.at(line2dIdx).second;
-                cv::line(img, cv::Point(line_2d_endpoints(0), line_2d_endpoints(1)), cv::Point(line_2d_endpoints(2), line_2d_endpoints(3)), cv::Scalar(0,0,255), 2, CV_AA);
-            }
-        }
-        if (valid3dLine){
-            const Eigen::Vector4d line_3d_endpoints = proj_3d_lines.at(line3dIdx).at(viewId);
-            cv::line(img, cv::Point(line_3d_endpoints(0), line_3d_endpoints(1)), cv::Point(line_3d_endpoints(2), line_3d_endpoints(3)), cv::Scalar(255,0,0), 2, CV_AA);
-
-        }
-    }
-
-    cv::imshow(v->s_Img_path, img);
-    cv::waitKey(0);
-}
 void testLineReprojectionCostFunction(const double * const cam_intrinsics,
                                       const double * const cam_extrinsics,
                                       const double * const line_3d_endpoint,

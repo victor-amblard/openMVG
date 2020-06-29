@@ -63,6 +63,16 @@
         "cinttypes": "cpp",
         "typeindex": "cpp",
         "typeinfo": "cpp",
-        "valarray": "cpp"
+        "valarray": "cpp",
+        "vec2": "cpp",
+        "vec3": "cpp",
+        "core": "cpp",
+        "matrixd": "cpp",
+        "matrixf": "cpp",
+        "observer_ptr": "cpp",
+        "ref_ptr": "cpp",
+        "mixinvector": "cpp",
+        "fast_back_stack": "cpp",
+        "block": "cpp"
     }
 }

@@ -1,4 +1,7 @@
-#include "openMVG/sfm/sfm_data.hpp"
+#ifndef OPENMVG_SFM_SFM_POINT_CLOUD_UTILS_HPP
+#define OPENMVG_SFM_SFM_POINT_CLOUD_UTILS_HPP
+
+
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/io/vtk_lib_io.h>
 #include <pcl/point_types.h>
@@ -9,10 +12,23 @@
 #include <pcl/octree/octree_pointcloud.h>
 #include <pcl/octree/octree_pointcloud_density.h>
 #include <pcl/octree/octree_pointcloud_singlepoint.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/filters/extract_indices.h>
+
+#include "openMVG/sfm/sfm_data.hpp"
+#include "openMVG/sfm/sfm_line_utils.hpp"
+
 namespace openMVG{
 namespace sfm{
-using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
+using PointCloudXYZ = ::pcl::PointCloud<::pcl::PointXYZ>;
 
+bool readPointCloud(const std::string& filename, 
+                           PointCloudXYZ::Ptr result);
+
+bool readPointCloudXYZIRT(const std::string& filename, 
+                          pcl::PointCloud<pcl::PointXYZIRT>::Ptr result);
 /**
  * Reads PCL point clouds from a vector of filenames 
  * @return vector of Point Cloud pointers
@@ -37,6 +53,35 @@ void visualizePointCloud(PointCloudXYZ::Ptr pointCloud);
 */
 Eigen::Matrix4d convertRTEigen(const geometry::Pose3& pose);
 
+inline double getDistToLine(const Vec3 lPoint, const Vec3 lDir, const Vec3 curPoint);
+
+std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const cv::Mat& rangeMap, const bool& visualization=false);
+
+std::vector<std::pair<uint32_t, Vec3>> getPointsInFov(PointCloudPtr<::pcl::PointXYZIRT> allPoints, int width, int height, const Mat3& K);
+
+void edgeScoreToRGB(const PointCloudPtr<::pcl::PointXYZ>& pointCloud, PointCloudPtr<::pcl::XPointXYZ> outputCloud);
+
+std::vector<int> projectPointCloud(const VelodynePointCloud::Ptr inputCloud, 
+                                  const bool& visualization,
+                                  const cv::Mat& img);
+
+/** 
+ * Associates the edges of the current lidar scan in fov to their corresponding lines
+**/ 
+void associateEdgePoint2Line(const View * v,
+                             const std::vector<Endpoints2>& allLines,
+                             const VelodynePointCloud::Ptr inputCloud,
+                             const cv::Mat& img,
+                             const Mat3& K,
+                             const geometry::Pose3& transform,
+                             std::vector<Segment3D>& result,
+                             const Eigen::Matrix4d lidar2camera);
+
+void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud, 
+                        const std::vector<std::vector<int>>& finalLines,
+                        const std::vector<std::pair<int, Segment3D>>& allSegments,
+                       std::map<int, int>& mapIdx);
 }
 }
 
+#endif
