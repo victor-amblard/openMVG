@@ -1,12 +1,13 @@
 #ifndef OPENMVG_SFM_SFM_GEOMETRIC_FEATURES_EXTRACTION_HPP
 #define OPENMVG_SFM_SFM_GEOMETRIC_FEATURES_EXTRACTION_HPP
 
-#include "openMVG/sfm/sfm_line_utils.hpp"
-#include "openMVG/sfm/sfm_data.hpp"
-#include "openMVG/numeric/eigen_alias_definition.hpp"
+
 
 #include "openMVG/multiview/projection.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/highgui.hpp"
 #include <opencv2/opencv.hpp>
+#define PCL_NO_PRECOMPILE
 
 #include <pcl/point_types.h>
 #include <pcl/common/intersections.h>
@@ -31,6 +32,9 @@
 #include <ceres/rotation.h>
 #include <ceres/types.h>
 
+#include "openMVG/sfm/sfm_line_utils.hpp"
+#include "openMVG/sfm/sfm_data.hpp"
+#include "openMVG/numeric/eigen_alias_definition.hpp"
 
 namespace openMVG {
 namespace sfm {

@@ -11,12 +11,13 @@
 
 #include <string>
 #include <iostream>
+#include <opencv2/opencv.hpp>
 
 #include "openMVG/numeric/eigen_alias_definition.hpp"
 #include "openMVG/sfm/sfm_data_BA.hpp"
+#include "openMVG/sfm/sfm_line_utils.hpp"
 #include "openMVG/sfm/sfm_geometric_features_extraction.hpp"
 #include "openMVG/sfm/sfm_point_cloud_utils.hpp"
-#include "openMVG/sfm/sfm_line_utils.hpp"
 
 namespace ceres { class CostFunction; }
 namespace openMVG { namespace cameras { struct IntrinsicBase; } }

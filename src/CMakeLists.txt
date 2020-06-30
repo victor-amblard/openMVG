@@ -375,11 +375,15 @@ endif()
 # - only external and enabled only if OpenMVG_USE_OPENCV is set to ON
 # ==============================================================================
 if (OpenMVG_USE_OPENCV)
-  find_package( OpenCV)
+  # set(OpenCV_DIR "/usr/locxal/share/OpenCV")
+  find_package( OpenCV 3.4 REQUIRED)
   if (NOT OpenCV_FOUND OR OpenCV_VERSION VERSION_LESS "3.0.0")
     message(STATUS "OpenCV was not found (note that OpenCV version >= 3.0.0 is required). -> Disabling OpenCV support.")
     UPDATE_CACHE_VARIABLE(OpenMVG_USE_OPENCV OFF)
     UPDATE_CACHE_VARIABLE(OpenMVG_USE_OCVSIFT OFF)
+    else()
+	 message(STATUS "FOund OpenCV")
+	add_definitions(${OpenCV_DEFINITIONS})
   endif()
 endif()
 

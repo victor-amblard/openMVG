@@ -2,11 +2,14 @@
 #define OPENMVG_SFM_SFM_POINT_CLOUD_UTILS_HPP
 
 
-#include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/io/vtk_lib_io.h>
+
+#define PCL_NO_PRECOMPILE
+#include <pcl/pcl_macros.h>
 #include <pcl/point_types.h>
 #include <pcl/common/transforms.h>
 #include <pcl/common/common_headers.h>
+#include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/io/vtk_lib_io.h>
 #include <pcl/octree/octree.h>
 #include <pcl/octree/octree_iterator.h>
 #include <pcl/octree/octree_pointcloud.h>
@@ -16,7 +19,9 @@
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/filters/extract_indices.h>
-
+#include <opencv2/opencv.hpp>
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/highgui.hpp"
 #include "openMVG/sfm/sfm_data.hpp"
 #include "openMVG/sfm/sfm_line_utils.hpp"
 

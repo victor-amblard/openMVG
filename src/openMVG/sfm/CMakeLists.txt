@@ -46,7 +46,7 @@ target_include_directories(openMVG_sfm
     ${CERES_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
     ${CGAL_INCLUDE_DIRS}
-    ${OpenCV_INCLUDE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
   PUBLIC
     $<INSTALL_INTERFACE:include>
     $<INSTALL_INTERFACE:include/openMVG>

@@ -16,6 +16,9 @@
 #include <CGAL/intersections.h>
 #include <pcl/point_types.h>
 #include <opencv2/opencv.hpp>
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/highgui.hpp"
+
 #include <ceres/rotation.h>
 #include <ceres/types.h>
 #include "openMVG/numeric/eigen_alias_definition.hpp"
@@ -38,6 +41,7 @@ namespace PARAMS{
     const int nNeighborsSmoothness(3);
     const float tMinLength3DSegment(0.5); 
     const int tOrthoDistLineMerge(3); //max #pixels between 2 // lines for fusion 
+    
     /** LIDAR specs (OS1-64) **/
     const int nRings(64);
     const int widthLidar(1024);
@@ -58,8 +62,7 @@ namespace PARAMS{
 }
 namespace pcl{
 
-struct EIGEN_ALIGN16 PointXYZIRT
-   {
+struct EIGEN_ALIGN16 PointXYZIRT{
      PCL_ADD_POINT4D;                    // quad-word XYZ
      float intensity;
      std::uint32_t t;
@@ -68,14 +71,13 @@ struct EIGEN_ALIGN16 PointXYZIRT
      std::uint16_t noise;
      std::uint32_t range;
      EIGEN_MAKE_ALIGNED_OPERATOR_NEW     // ensure proper alignment
-   };
-        struct XPointXYZ
-     {
+};
+struct EIGEN_ALIGN16 XPointXYZ{
        PCL_ADD_POINT4D;                  // preferred way of adding a XYZ+padding
        float nClustered;
        PCL_MAKE_ALIGNED_OPERATOR_NEW
       // make sure our new allocators are aligned
-     } EIGEN_ALIGN16;                    // enforce SSE padding for correct memory alignment
+};                    // enforce SSE padding for correct memory alignment
 };
 
 
