@@ -276,6 +276,14 @@ if (NOT Ceres_FOUND)
 endif()
 
 # ==============================================================================
+# Line Segment Detector
+# =============================================================================
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/lsd/)
+set(LSD_LIBRARIES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lsd/build/libLineMatchingLib.so)
+set(LSD_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lsd/)
+
+# ==============================================================================
 # Flann
 # ==============================================================================
 # - internal by default (flann),
