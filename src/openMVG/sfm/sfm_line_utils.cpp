@@ -83,7 +83,10 @@ double getRange(const ::pcl::PointXYZ& p)
 }
 bool segmentComp(std::pair<int, Segment3D>& p1, std::pair<int, Segment3D>& p2)
 {
-    return !(p1.second < p2.second);
+    if (p1.second < p2.second)
+        return false;
+    else
+        return true;
 }
 
 int root(int i, std::vector<int>& clustersSegment){

@@ -4,42 +4,36 @@
 #include <omp.h>
 #endif
 
-
-
 namespace openMVG {
 namespace sfm {
 
-void loadLinesFromLSDFile(const std::string& filename,
-                          const std::string& imgFilename,
-                          std::vector<Endpoints2>& allLinesImage)
+void computeLinesNDescriptors(const std::string& filename,
+                              std::vector<Endpoints2>& allLinesImage,
+                              std::vector<std::vector<LBD::Descriptor>>& allDescriptors)
 {
-    const float minLineLength(10.f);
-    
-    std::ifstream inFile;
-    inFile.open(filename);
+    cv::Mat img = cv::imread(filename, cv::IMREAD_GRAYSCALE);
+    LineDescriptor lineDesc;
 
-    if (!inFile)
-        std::cerr << "Unable to open " << filename << std::endl;
+    ScaleLines linesInImage;
+    lineDesc.GetLineDescriptor(img, linesInImage);
+    std::cerr << linesInImage.size() << " lines detected (" << filename << ")" <<  std::endl;
+    for (auto & line: linesInImage){
+        float startPointX = line[0].startPointX;
+        float startPointY = line[0].startPointY;
+        float endPointX = line[0].endPointX;
+        float endPointY = line[0].endPointY;
+        auto endpoints2d = std::make_pair(Vec2(startPointX, startPointY), Vec2(endPointX, endPointY));
+        allLinesImage.push_back(endpoints2d);
+        std::vector<LBD::Descriptor> curDescriptors(line.size());
+        for (unsigned int i = 0 ; i < line.size() ; ++i)
+            curDescriptors.at(i) = line[i].descriptor;
+        
+        allDescriptors.push_back(curDescriptors);
+        // cv::line(img, cv::Point(startPointX, startPointY), cv::Point(endpointX, endpointY), cv::Scalar(255,255,255),2);
 
-    std::string line;
-    std::getline(inFile, line); //ignore first line = #lines
-
-    while (std::getline(inFile, line)){
-        std::stringstream ss(line);
-        float value;
-        float line[7] = {0.,0.,0.,0.,0.,0.,0.};
-        int iCount(0);
-        while (ss >> value){
-            line[iCount] = value;
-            ++iCount;
-        }
-        if (iCount!=7)
-            std::cerr << "Error when reading line from txt file!" << std::endl;
-        else
-            if (pow(line[2]-line[0],2.f)+pow(line[3]-line[1], 2.f) > pow(minLineLength,2.f))
-                allLinesImage.push_back(std::make_pair(Vec2(line[0], line[1]), Vec2(line[2], line[3])));
     }
-    processLinesLSD(imgFilename, allLinesImage);
+    // cv::imshow("test", img);
+    // cv::waitKey(0);
 }
 
 void processLinesLSD(const std::string& imgFilename,
@@ -208,14 +202,15 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
 
         geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
         Mat34 projMatrix;
+        openMVG::P_From_KRt(K, pose.rotation(), pose.translation(), &projMatrix);
         Mat4 projMatrix4 = Mat4::Identity();
         projMatrix4.block(0,0,3,4) = projMatrix;
 
-        openMVG::P_From_KRt(K, pose.rotation(), pose.translation(), &projMatrix);
 
         MyLine segmentW(segment.endpoints3D.first, segment.endpoints3D.second);
         Vec3 backProjLine = segmentW.getProjection(projMatrix4);
         Vec2 normal = equation2Normal2D(backProjLine);
+
 
         Vec3 backProjStart = projectW2I(segment.endpoints3D.first, projMatrix);
         Vec3 backProjEnd = projectW2I(segment.endpoints3D.second, projMatrix);
@@ -228,9 +223,9 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
 
         //Second check: Is the finite segment visible in the image
         double tA = 0;
-        double tB = getCoeffLine(backProjEnd.block(0,0,2,1), normal, backProjStart.block(0,0,2,1));
-        double tStart = getCoeffLine(projBoundPoints.first, normal, backProjStart.block(0,0,2,1));
-        double tEnd = getCoeffLine(projBoundPoints.second, normal, backProjStart.block(0,0,2,1));
+        double tB = getCoeffLine(backProjEnd.hnormalized(), normal, backProjStart.hnormalized());
+        double tStart = getCoeffLine(projBoundPoints.first, normal, backProjStart.hnormalized());
+        double tEnd = getCoeffLine(projBoundPoints.second, normal, backProjStart.hnormalized());
 
         if (tEnd < tStart)
             std::swap(tStart, tEnd);
@@ -274,7 +269,7 @@ bool isMatched(const Segment3D& curSegment,
     Vec3 reprojStart = projectW2I(curSegment.endpoints3D.first, proj2Ref);
     Vec3 reprojEnd = projectW2I(curSegment.endpoints3D.second, proj2Ref);
 
-    Endpoints2 endpointsCur = std::make_pair(reprojStart.block(0,0,2,1), reprojStart.block(0,0,2,1));
+    Endpoints2 endpointsCur = std::make_pair(reprojStart.hnormalized(), reprojStart.hnormalized());
 
     double totalDistance  = distPoint2Line2D((endpointsCur.first+endpointsCur.second)/2, refSegment.endpoints2D.first, normalRef);
     totalDistance /= PARAMS::tDistanceLineCorrespondence;
@@ -341,7 +336,6 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                     const View * viewP = sfm_data.GetViews().at(nView).get();
                     const Pose3& curTF = sfm_data.GetPoseOrDie(viewP);
                     int segmentId = segmentsInView.at(nView).at(iPotentialMatch);
-                    std::cerr << segmentId << " " ;
                     bool iMatch = isMatched(allSegments.at(mapSegment[segmentId]).second, curSegment, curTF, 
                     width, height, validViewsReprojection.at(iView).second, K);
 
@@ -536,5 +530,9 @@ void testLineReprojectionPlucker(const double * const cam_intrinsics,
     cv::imshow("test",test);
     cv::waitKey(0);
 }   
+void group3DLines()
+{
+
+}
 }
 }

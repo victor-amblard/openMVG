@@ -31,6 +31,21 @@ void visualizePointCloud(PointCloudXYZ::Ptr pointCloud)
       viewer->spinOnce (100);
     };
 }
+void visualizePointCloud(PointCloudPtr<pcl::XPointXYZ> pointCloud)
+{
+    ::pcl::visualization::PCLVisualizer::Ptr viewer (new ::pcl::visualization::PCLVisualizer ("3D Viewer"));
+    viewer->setBackgroundColor (0, 0, 0);
+      viewer->addPointCloud<pcl::XPointXYZ> (pointCloud, "sample cloud");
+
+    viewer->setPointCloudRenderingProperties (::pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+    viewer->addCoordinateSystem (1.0);
+    viewer->initCameraParameters ();
+
+   while (!viewer->wasStopped ())
+    {
+      viewer->spinOnce (100);
+    };
+}
 Vec3 getEndpointLocation(const MyLine& l,
                          const Vec2 pt,
                          const Mat3& K){
@@ -93,7 +108,7 @@ std::vector<PointCloudXYZ::Ptr> readAllClouds(const std::string& dirName,
 bool fusePointClouds(const std::vector<PointCloudXYZ::Ptr>& allClouds,
                      const Poses& poses,
                      const Eigen::Matrix4d& lid2cam,
-                     PointCloudXYZ::Ptr fusedPcl,
+                     PointCloudPtr<pcl::XPointXYZ> fusedPcl,
                      const float leafSize)
 {
 
@@ -109,15 +124,13 @@ bool fusePointClouds(const std::vector<PointCloudXYZ::Ptr>& allClouds,
         const IndexT indexPose = pose_it.first;
 
         const geometry::Pose3& pose = pose_it.second;
-        Eigen::Matrix4d curPose = convertRTEigen(pose)*lid2cam;
-        std::cerr << curPose << std::endl;
-
+        Eigen::Matrix4d curPose = convertRTEigen(pose).inverse()*lid2cam;
 
         std::stringstream ss;
         PointCloudXYZ::Ptr curCloud = allClouds.at(indexPose);
         PointCloudXYZ::Ptr curTfCloud(new PointCloudXYZ);
 
-        ::pcl::transformPointCloud(*curCloud, *curTfCloud, curPose);
+        pcl::transformPointCloud(*curCloud, *curTfCloud, curPose);
 
         for(auto it=curTfCloud->begin();it!=curTfCloud->end();++it)
             globalCloud->push_back(*it);
@@ -133,9 +146,17 @@ bool fusePointClouds(const std::vector<PointCloudXYZ::Ptr>& allClouds,
 
     auto allVoxels = octreeB.getOccupiedVoxelCenters(voxelCenters);
 
-    for(auto it = voxelCenters.begin();it!=voxelCenters.end();++it)
-        fusedPcl->push_back(*it);
-    
+    for(auto it = voxelCenters.begin();it!=voxelCenters.end();++it){
+        pcl::PointXYZ p(it->x, it->y, it->z);
+        int nClustered = octreeB.getVoxelDensityAtPoint(p);
+        float nC = static_cast<float>(nClustered);
+        pcl::XPointXYZ xP;
+        xP.x = it->x;
+        xP.y = it->y;
+        xP.z = it->z;
+        xP.nClustered = nC;
+        fusedPcl->push_back(xP);
+    }
     return true;
 }
 
@@ -166,7 +187,8 @@ void associateEdgePoint2Line(const View * v,
                              const Mat3& K,
                              const geometry::Pose3& pose,
                              std::vector<Segment3D>& result,
-                             const Eigen::Matrix4d lidar2camera)
+                             const Eigen::Matrix4d lidar2camera,
+                             const std::vector<std::vector<LBD::Descriptor>>& allDesc)
 {
 
     const int width = v->ui_width;
@@ -177,6 +199,9 @@ void associateEdgePoint2Line(const View * v,
 
     const size_t sLine(allLines.size());
 
+    for (unsigned int i = 0 ; i < sLine ; ++i)
+        cv::line(img, cv::Point(allLines.at(i).first(0),allLines.at(i).first(1)), cv::Point(allLines.at(i).second(0), allLines.at(i).second(1)),
+        cv::Scalar(200,200,200));
     std::vector<std::vector<int>> points2lines(sLine);
     std::vector<std::set<int>> linesAdjacency(sLine);
 
@@ -196,7 +221,7 @@ void associateEdgePoint2Line(const View * v,
     extract.setNegative (false);
     extract.filter (*edgeCloud);
 
-    ::pcl::transformPointCloud(*edgeCloud, *edgeCloud, lidar2camera);
+    pcl::transformPointCloud(*edgeCloud, *edgeCloud, lidar2camera);
 
     // Get all edge points in fov
     // To change
@@ -424,55 +449,56 @@ void associateEdgePoint2Line(const View * v,
 
             Mat34 projMatrix;
             openMVG::P_From_KRt(K, cam_R, cam_t, &projMatrix);
-            Eigen::Matrix4d worldTransform =  Eigen::Matrix4d::Identity();
-            worldTransform.block(0,0,3,3) = cam_R;
-            worldTransform.block(0,3,3,1) = cam_t;       
+            Eigen::Matrix4d world2camera =  Eigen::Matrix4d::Identity();
+            world2camera.block(0,0,3,3) = cam_R;
+            world2camera.block(0,3,3,1) = cam_t;       
             
-            Vec3 endpointsProjA = (worldTransform * endpointACamera.homogeneous()).block(0,0,3,1);
-            Vec3 endpointsProjB = (worldTransform * endpointBCamera.homogeneous()).block(0,0,3,1);
+            Vec3 endpointsProjA = (world2camera.inverse() * endpointACamera.homogeneous()).block(0,0,3,1);
+            Vec3 endpointsProjB = (world2camera.inverse() * endpointBCamera.homogeneous()).block(0,0,3,1);
             auto finalEndpoints2d =  std::make_pair(endpointsA, endpointsB);
             auto finalEndpoints3d =  std::make_pair(endpointsProjA, endpointsProjB); 
             std::cerr << finalEndpoints3d.first << std::endl;
             std::cerr << finalEndpoints3d.second << std::endl;
-            // /** Debug 
-            Vec2 reprojEndpoints3d = projectW2I(finalEndpoints3d.first, projMatrix).block(0,0,2,1);
-            Vec2 reprojEndpoints3d_b = projectW2I(finalEndpoints3d.second, projMatrix).block(0,0,2,1);
+            /** Debug 
+            Vec2 reprojEndpoints3d = projectW2I(finalEndpoints3d.first, projMatrix).hnormalized();
+            Vec2 reprojEndpoints3d_b = projectW2I(finalEndpoints3d.second, projMatrix).hnormalized();
+            std::cerr << reprojEndpoints3d << std::endl;
+            std::cerr << reprojEndpoints3d_b << std::endl;
 
             cv::circle(img, cv::Point(reprojEndpoints3d(0), reprojEndpoints3d(1)), 2, curColor);
             cv::circle(img, cv::Point(reprojEndpoints3d_b(0), reprojEndpoints3d_b(1)), 2, curColor);
-            // **/
+            **/
             if ((finalEndpoints3d.second - finalEndpoints3d.first).norm() > PARAMS::tMinLength3DSegment
                 && (finalEndpoints3d.second - finalEndpoints3d.first).norm() < 10){
-                Segment3D curSegment(*coefficients, finalEndpoints2d, finalEndpoints3d, v->id_view);
+                std::vector<LBD::Descriptor> descs = allDesc.at(curCC.at(0)); // TODO: Update the descriptors!
+                Segment3D curSegment(*coefficients, finalEndpoints2d, finalEndpoints3d, v->id_view, descs);
                 result.push_back(curSegment);
                 
-                // /** Debug 
+                /** Debug 
                 cv::line(img, cv::Point(endpointsA(0), endpointsA(1)), cv::Point(endpointsB(0), endpointsB(1)), curColor);
                 for(auto& point: inliers->indices){
                     Vec2 curPt = edgesInFov.at(allPointsCC.at(point)).second.block(0,0,2,1);
                     cv::circle(img, cv::Point(curPt(0), curPt(1)), 1, curColor);
                     const pcl::PointXYZIRT& pclPt = edgeCloud->points[edgesInFov.at(allPointsCC.at(point)).first];
                     Vec3 ePt(pclPt.x, pclPt.y, pclPt.z);
-                    Vec3 curPtInWF = (worldTransform * ePt.homogeneous()).block(0,0,3,1);
+                    Vec3 curPtInWF = (world2camera.inverse() * ePt.homogeneous()).block(0,0,3,1);
                     endpointsDebug->push_back(pcl::PointXYZRGB(curPtInWF.x(), curPtInWF.y(), curPtInWF.z(), curColor[2], curColor[1], curColor[0]));
                 }
                 endpointsDebug->push_back(pcl::PointXYZRGB(finalEndpoints3d.first.x(), finalEndpoints3d.first.y(), finalEndpoints3d.first.z(), curColor[2], curColor[1], curColor[0]));
                 endpointsDebug->push_back(pcl::PointXYZRGB(finalEndpoints3d.second.x(), finalEndpoints3d.second.y(), finalEndpoints3d.second.z(), curColor[2], curColor[1], curColor[0]));
-                // **/
+                **/
             }
 
         }
     }
-    // /** Debug
+    /** Debug
     std::cerr << sLine << " 2D segments were detected in the image and " << count << " will be used" << std::endl;
     cv::imshow("test",img);
     cv::waitKey(300);
-    /*
+    
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
-    viewer->addPointCloud<pcl::XPointXYZ> (mergedClouds, "sample cloud");
     viewer->addPointCloud<pcl::PointXYZRGB> (endpointsDebug, "segments");
-    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 10, "segments");
     viewer->addCoordinateSystem (1.0);
     viewer->initCameraParameters ();
@@ -481,8 +507,7 @@ void associateEdgePoint2Line(const View * v,
     {
       viewer->spinOnce (100);
     };
-    */
-    // **/ 
+    **/ 
     
 }
 

@@ -23,14 +23,16 @@
 #include <ceres/types.h>
 #include "openMVG/numeric/eigen_alias_definition.hpp"
 #include "openMVG/sfm/sfm_data.hpp"
+#include "third_party/lsd/LineDescriptor.hh"
 
 namespace Eigen{
     using Vector6f = Matrix<float,6,1>;
     using Vector6d = Matrix<double,6,1>;
 
 }
-
-
+namespace LBD{
+using Descriptor = std::vector<float>;
+}
 namespace PARAMS{
     const double tVertAngle(45*M_PI/180); // used in 
     const double tMergeDeltaAngle(10*M_PI/180); // used in
@@ -170,9 +172,43 @@ public:
     Endpoints2 endpoints2D;
     Endpoints3 endpoints3D;
     int view;
+    std::vector<LBD::Descriptor> descriptors;    
+
+    double L2Norm(const LBD::Descriptor& v1, const LBD::Descriptor& v2) const{
+        double sum = 0;
+        for (unsigned int i = 0 ; i < v1.size() ; ++i)
+            sum += pow(v1.at(i) - v2.at(i), 2.);
+        
+        return pow(sum, 1/2.);
+    }
+
     double norm(void) const{
         return (endpoints3D.second - endpoints3D.first).norm();
     }
+
+    double featureDistance(const Segment3D& other) const{ 
+        double minDis, dis;
+
+		short sameLineSize = descriptors.size();
+        short sameLineSizeR = other.descriptors.size();
+
+        minDis = 100;
+        unsigned int dimOfDes = descriptors.at(0).size();
+
+        for (short lineIDInSameLines = 0; lineIDInSameLines < sameLineSize; lineIDInSameLines++)
+        {
+            for (short lineIDInSameLinesR = 0; lineIDInSameLinesR < sameLineSizeR; lineIDInSameLinesR++)
+            {
+                dis = L2Norm(descriptors.at(lineIDInSameLines), other.descriptors.at(lineIDInSameLinesR));
+                if (dis < minDis)
+                {
+                    minDis = dis;
+                }
+            }
+        } 
+        return minDis;
+    }
+
     void debug(int id) const {
         std::cerr << "~~~~~ Segment #" << id << " ~~~~~" << std::endl;
         std::cerr << "View: " << view << std::endl;
@@ -203,7 +239,8 @@ public:
         cv::imshow("Debug segment", img);
         cv::waitKey(0);
     }
-    Segment3D(const pcl::ModelCoefficients& line, Endpoints2& endpoints_, Endpoints3& endpoints2_, int view_):MyLine(line), endpoints2D(endpoints_), endpoints3D(endpoints2_),view(view_){}
+ Segment3D(const pcl::ModelCoefficients& line, Endpoints2& endpoints_, Endpoints3& endpoints2_, int view_,
+      std::vector<LBD::Descriptor> descs):MyLine(line), endpoints2D(endpoints_), endpoints3D(endpoints2_),view(view_), descriptors(descs){}
 
     bool operator<(const Segment3D& other) const {
         return this->norm() < other.norm();

@@ -24,6 +24,7 @@
 #include "opencv2/highgui.hpp"
 #include "openMVG/sfm/sfm_data.hpp"
 #include "openMVG/sfm/sfm_line_utils.hpp"
+#include "third_party/lsd/LineDescriptor.hh"
 
 namespace openMVG{
 namespace sfm{
@@ -46,12 +47,13 @@ std::vector<PointCloudXYZ::Ptr> readAllClouds(const std::string& dirName,
 bool fusePointClouds(const std::vector<PointCloudXYZ::Ptr>& allClouds,
                      const Poses& transforms,
                      const Eigen::Matrix4d& lid2cam,
-                     PointCloudXYZ::Ptr fusedPcl,
+                     PointCloudPtr<pcl::XPointXYZ> fusedPcl,
                      const float leafSize=0.03f);
 
 
 // Utility function to visualize a point cloud
 void visualizePointCloud(PointCloudXYZ::Ptr pointCloud);
+void visualizePointCloud(PointCloudPtr<pcl::XPointXYZ> pointCloud);
 
 /**
  * Utility function to convert an openMVG pose representation (R,t) to a 4x4 matrix 
@@ -80,7 +82,8 @@ void associateEdgePoint2Line(const View * v,
                              const Mat3& K,
                              const geometry::Pose3& transform,
                              std::vector<Segment3D>& result,
-                             const Eigen::Matrix4d lidar2camera);
+                             const Eigen::Matrix4d lidar2camera,
+                             const std::vector<std::vector<LBD::Descriptor>>& allDesc);
 
 void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud, 
                         const std::vector<std::vector<int>>& finalLines,

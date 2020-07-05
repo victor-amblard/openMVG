@@ -31,7 +31,7 @@
 
 #include <ceres/rotation.h>
 #include <ceres/types.h>
-
+#include "third_party/lsd/LineDescriptor.hh"
 #include "openMVG/sfm/sfm_line_utils.hpp"
 #include "openMVG/sfm/sfm_data.hpp"
 #include "openMVG/numeric/eigen_alias_definition.hpp"
@@ -40,18 +40,13 @@ namespace openMVG {
 namespace sfm {
 using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
 
-/** 
- * Loads lines outputted by a MyLine Segment Detector (LSD)
+/** Detects line segments in an image 
+ * using a 3rd party library (LSD) and computes their descriptors 
 **/
-void loadLinesFromLSDFile(const std::string& filename,
-                          const std::string& imgFilename,
-                          std::vector<Endpoints2>& allLinesImage);
+void computeLinesNDescriptors(const std::string& filename,
+                              std::vector<Endpoints2>& allLinesImage,
+                              std::vector<std::vector<LBD::Descriptor>>& allDescriptors);
 
-/**
- * Processes the lines extracted by loadLinesFromLSDFile 
-**/
-void processLinesLSD(const std::string& imgFilename,
-                     std::vector<Endpoints2>& allLinesImage);
 
 std::vector<Endpoints2> getLinesInImage(cv::Mat & img, const bool& visualization=false);
 
