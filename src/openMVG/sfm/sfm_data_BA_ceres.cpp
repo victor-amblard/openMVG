@@ -325,13 +325,17 @@ bool Bundle_Adjustment_Ceres::Adjust
   
   if (options.use_lines_opt){
     std::cout << " Using lines opt" << std::endl;
-    //Right now we are precomputing lines (i.e. fusing lidar clouds + getting SfM points on line)
+
     std::vector<std::string> allFilenames;
+    
+    //TODO: Read this info directly from the YAML file
+    std::string lidarPrefix = "/../../ouster_scan/subset/";
     Eigen::Matrix4d lidar2camera;
     lidar2camera << -0.70992163, -0.02460003, -0.70385092, -0.04874569,
                      0.70414167, -0.00493623, -0.71004236, -0.05289342,  
                      0.01399269, -0.99968519,  0.02082624, -0.04699275,
                         0.        ,  0.        ,  0.,  1.;
+
     std::vector<std::vector<IndexT>> lines_2d_per_image;
     lines_2d_per_image.reserve(sfm_data.GetViews().size());
 
@@ -359,7 +363,7 @@ bool Bundle_Adjustment_Ceres::Adjust
         
         // Load lidar scan
         PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
-        readPointCloudXYZIRT(sfm_data.s_root_path+"/../../ouster_scan/subset/"+lPath, tmpCloud);
+        readPointCloudXYZIRT(sfm_data.s_root_path+lidarPrefix+lPath, tmpCloud);
 
         // Create 3D segments
         associateEdgePoint2Line(v, defaultLinesVector, tmpCloud, cv::imread(imgPath), K, sfm_data.GetPoseOrDie(v), resultLines, lidar2camera.inverse(), allDescriptors);
@@ -379,7 +383,7 @@ bool Bundle_Adjustment_Ceres::Adjust
     // Point cloud fusion
     std::cerr << "Fusing point clouds" << std::endl;
     PointCloudPtr<pcl::XPointXYZ> mergedCloud(new pcl::PointCloud<pcl::XPointXYZ>); 
-    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_root_path, allFilenames);
+    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_root_path+lidarPrefix, allFilenames);
     openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera.inverse(), mergedCloud);
     std::cerr << "Fused point clouds " << std::endl;
     openMVG::sfm::visualizePointCloud(mergedCloud);
@@ -390,7 +394,8 @@ bool Bundle_Adjustment_Ceres::Adjust
     std::cerr << "Visualizing 3D segments" << std::endl;
     visualizeEndResult(mergedCloud, all_clustered_segments, allSegments,  mapIdx);
     group3DLines(allSegments, mapIdx, all_clustered_segments, all_3d_lines);
-    std::cerr << "Ended line processing" << std::endl;
+
+    std::cerr << "Ended line processing -- " << all_3d_lines.size() << " lines for optimization" <<  std::endl;
   }
 
   ceres::Problem problem;
@@ -483,6 +488,7 @@ bool Bundle_Adjustment_Ceres::Adjust
   }
 
   if (options.use_lines_opt){
+     std::cerr << " Adding parameter blocks for 3D lines using Plucker vectors" << std::endl; 
      for (const auto& line_it: all_3d_lines)
       {
       MyLine l = line_it.second;

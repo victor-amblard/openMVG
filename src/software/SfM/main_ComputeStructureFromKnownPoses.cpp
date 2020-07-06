@@ -361,7 +361,12 @@ int main(int argc, char **argv)
         Optimize_Options(
           cameras::Intrinsic_Parameter_Type::NONE,
           Extrinsic_Parameter_Type::ADJUST_ALL,
-          Structure_Parameter_Type::ADJUST_ALL)
+          Structure_Parameter_Type::ADJUST_ALL,
+          Control_Point_Parameter(0.0, false),
+          false,
+          true,
+          true,
+          Line_Parameter_Type::ADJUST_ALL) //Change to AJDUST_ALL for line BA
       );
   }
 

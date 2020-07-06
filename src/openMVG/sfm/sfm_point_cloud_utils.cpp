@@ -75,7 +75,7 @@ Vec3 getEndpointLocation(const MyLine& l,
         //We have 2 skew lines: https://en.wikipedia.org/wiki/Skew_lines
         // v1 = p1 + t*d1, v2 = p2+t*d2
         // n = d1 x d2, n1 = d1 x n
-        // c2 = p2 + (p1 - p2).n1/d2.n1 * d2
+        // c2 = p2 + (p1 - p2).n1 / d2.n1 * d2
         CGAL_K::Vector_3 cp = CGAL::cross_product(epipolarLine.to_vector(), lineEqn.to_vector());
         cp = cp/cp.squared_length();
         CGAL_K::Vector_3 normal1 = CGAL::cross_product(epipolarLine.to_vector(), cp);
@@ -94,7 +94,7 @@ std::vector<PointCloudXYZ::Ptr> readAllClouds(const std::string& dirName,
     for (std::string filename: allFilenames){
         PointCloudXYZ::Ptr curCloud(new PointCloudXYZ);
         //WARNING !!!
-        std::string xFilename = dirName + "/" + filename.substr(0,4)+".pcd";
+        std::string xFilename = dirName + filename.substr(0,4)+".pcd";
 
         if (!readPointCloud(xFilename, curCloud))
             results.push_back(nullptr);
@@ -619,42 +619,40 @@ void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud,
                         const std::vector<std::pair<int, Segment3D>>& allSegments,
                        std::map<int, int>& mapIdx)
 {
-    const int colMultiplier(7);
-    PointCloudXYZRGB::Ptr segmentsEndpoints(new PointCloudXYZRGB);
+    const int colMultiplier(41);
 
+     
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
-    viewer->addPointCloud<pcl::XPointXYZ> (mergedCloud, "merged cloud");
-
-    
+    viewer->addPointCloud<pcl::XPointXYZ> (mergedCloud, "sample cloud");
+    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
+    viewer->addCoordinateSystem (1.0);
+    viewer->initCameraParameters ();
 
     for (unsigned int i = 0 ; i < finalLines.size(); ++i)
     {
         Vec3 curColor(PARAMS::r[(colMultiplier * i)%255], PARAMS::g[(colMultiplier * i) % 255], PARAMS::b[(colMultiplier * i) % 255]);
-        std::cerr << i << " " << finalLines.at(i).size() << std::endl;
+        PointCloudXYZRGB::Ptr segmentsEndpoints(new PointCloudXYZRGB);   
+
         for (unsigned int j = 0 ; j < finalLines.at(i).size() ; ++j){
             const Segment3D& curSeg = allSegments.at(mapIdx[finalLines.at(i).at(j)]).second;
-
-            segmentsEndpoints->push_back(pcl::PointXYZRGB(curSeg.endpoints3D.first.x(), curSeg.endpoints3D.first.y(), curSeg.endpoints3D.first.z(), 
-            curColor.x()*255, curColor.y()*255, curColor.z()*255));
-
-            segmentsEndpoints->push_back(pcl::PointXYZRGB(curSeg.endpoints3D.second.x(), curSeg.endpoints3D.second.y(), curSeg.endpoints3D.second.z(), 
-            curColor.x()*255, curColor.y()*255, curColor.z()*255));
-
+            // Simulate 20 points on the line
+            for (int k = 0; k < 20; ++k){
+                Vec3 pointOnLine = curSeg.endpoints3D.first + float(k/20.) * (curSeg.endpoints3D.second - curSeg.endpoints3D.first);
+                segmentsEndpoints->push_back(pcl::PointXYZRGB(pointOnLine.x(), pointOnLine.y(), pointOnLine.z(), 
+                curColor.x()*255, curColor.y()*255, curColor.z()*255));
+            }
         }
+    
+        viewer->addPointCloud<pcl::PointXYZRGB> (segmentsEndpoints, std::to_string(i));
+        viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, std::to_string(i));
+        viewer->spinOnce (100);
+        usleep(100000);
     }
+    while (!viewer->wasStopped ()){
+        viewer->spinOnce (100);
 
-    viewer->addPointCloud<pcl::PointXYZRGB> (segmentsEndpoints, "segments");
-    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
-    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, "segments");
-    viewer->addCoordinateSystem (1.0);
-    viewer->initCameraParameters ();
-
-   while (!viewer->wasStopped ())
-    {
-      viewer->spinOnce (100);
     };
-}    
-
+}
 } // namespace sfm
 } // namespace openMVG

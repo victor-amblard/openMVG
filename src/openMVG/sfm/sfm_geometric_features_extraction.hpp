@@ -61,13 +61,13 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
  *    - Angular difference between the directions of the reprojected refSegment and the 2D curSegment
  *    - length of the overlap between the two segments
 **/ 
-bool isMatched(const Segment3D& curSegment,
-              const Segment3D& refSegment,
-              const Pose3& transformWF,
-              const int w,
-              const int h,
-              bool completeVisibility,
-              const Mat3& K);
+std::pair<bool,float> isMatched(const Segment3D& curSegment,
+                                const Segment3D& refSegment,
+                                const Pose3& transformWF,
+                                const int w,
+                                const int h,
+                                bool completeVisibility,
+                                const Mat3& K);
 
 /**
  * Main function: Evaluates all potential data association across the dataset
@@ -106,6 +106,11 @@ void testLineReprojectionPlucker(const double * const cam_intrinsics,
                                       const double * const line_3d_endpoint,
                                       const double * m_line_2d_endpoints,
                                       const View * v);
+
+void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
+                const std::map<int, int>& mapSegment,
+                std::vector<std::vector<int>>& finalLines,
+                Hash_Map<IndexT, MyLine>& allLines);
 }
 }
 #endif

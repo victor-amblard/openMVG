@@ -244,13 +244,13 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
     return result;
 }
 //Checked
-bool isMatched(const Segment3D& curSegment,
-              const Segment3D& refSegment,
-              const Pose3& transformWF,
-              const int w,
-              const int h,
-              bool completeVisibility,
-              const Mat3& K){
+std::pair<bool,float> isMatched(const Segment3D& curSegment,
+                                const Segment3D& refSegment,
+                                const Pose3& transformWF,
+                                const int w,
+                                const int h,
+                                bool completeVisibility,
+                                const Mat3& K){
     
     Mat34 proj2Ref;
     openMVG::P_From_KRt(K, transformWF.rotation(), transformWF.translation(), &proj2Ref);
@@ -279,8 +279,22 @@ bool isMatched(const Segment3D& curSegment,
     double normRefSegment = (curSegment.endpoints2D.second - curSegment.endpoints2D.first).norm();
     double overlap = std::fabs(normCurSegment - normRefSegment) / normRefSegment;
 
-    // std::cerr << "Score: dist = " << totalDistance << " | theta = " << relTheta << " | overlap " << overlap << "  " << completeVisibility << std::endl;
-    return (totalDistance < 1) && (relTheta < 1) && (!completeVisibility || (overlap > PARAMS::tMaxRelativeOverlap));
+
+    // Criterion #4: Distance in feature space
+    float distFeature = refSegment.featureDistance(curSegment) / PARAMS::tMaxFeatDistance;
+    
+    // Criterion #5 (anti-occlusion)
+    Vec3 dirRef3 = Vec3(refSegment.endpoints3D.second - refSegment.endpoints3D.first).normalized();
+    Vec3 vecDist3((curSegment.endpoints3D.first + curSegment.endpoints3D.second)/2 - (refSegment.endpoints3D.first + refSegment.endpoints3D.second)/2);
+    double orthoDist = vecDist3.norm () * sqrt(1 - pow(vecDist3.dot(dirRef3)/vecDist3.norm(),2.))/PARAMS::tOrthoDistMatch;
+    float scoreF;
+    bool valid;
+
+    Eigen::Vector4f score(totalDistance, relTheta, distFeature, orthoDist);
+    scoreF = score.norm();
+    valid = (score(0) < 1) && (score(1) < 1) && (score(2) < 1) && (score(3) < 1) && (!completeVisibility || (overlap > PARAMS::tMaxRelativeOverlap));
+
+    return std::make_pair(valid, scoreF) ;
 }
 
 //Checked
@@ -315,7 +329,7 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
         const Segment3D& curSegment(allSegments.at(iSegment).second);
         curSegment.debug(curIdSegment);
         
-        // const cv::Mat img = cv::imread(filenames.at(curSegment.view));
+        const cv::Mat img = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(curSegment.view)->s_Img_path);
 
         std::vector<std::pair<int, bool>> validViewsReprojection = getViewsSegment(curSegment, sfm_data, K);
 
@@ -331,28 +345,45 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
 
             if (nView != curSegment.view)
             {
+                float minScore = 100;
+                int minSegmentId = 0;
+                bool match = false;
+
                 for (unsigned int iPotentialMatch = 0; iPotentialMatch < segmentsInView.at(nView).size() ; ++iPotentialMatch)
                 {
                     const View * viewP = sfm_data.GetViews().at(nView).get();
                     const Pose3& curTF = sfm_data.GetPoseOrDie(viewP);
                     int segmentId = segmentsInView.at(nView).at(iPotentialMatch);
-                    bool iMatch = isMatched(allSegments.at(mapSegment[segmentId]).second, curSegment, curTF, 
+                    auto score = isMatched(allSegments.at(mapSegment[segmentId]).second, curSegment, curTF, 
                     width, height, validViewsReprojection.at(iView).second, K);
 
-                    if (iMatch)
+                    if (score.first)
                     {
-                        std::cerr << "Match! (" << curIdSegment << "," << segmentId << ")" << std::endl;
-                        joinSets(curIdSegment, segmentId, clustersSegment, rank);
+                        match = true;
+                        // std::cerr << "Match! (" << curIdSegment << "," << segmentId << ")" << std::endl;
+                        if (score.second < minScore)
+                        {
+                            minScore = score.second;
+                            minSegmentId = segmentId;
+                        }
                     }
+                }
+
+                if (match){
+                    std::cerr << curSegment.featureDistance(allSegments.at(mapSegment[minSegmentId]).second) << std::endl;
+                    // std::cerr << "Segment " << curIdSegment << "(" << curSegment.view << ") corresponds to segment " << minSegmentId << "(" << nView
+                    // << ")" << std::endl;
+                    #pragma omp critical
+                    joinSets(curIdSegment, minSegmentId, clustersSegment, rank);
                 }
             }
         }
         std::cerr << std::endl;
-        /** 
+        // /** 
         cv::line(img, cv::Point(curSegment.endpoints2D.first(0), curSegment.endpoints2D.first(1)), cv::Point(curSegment.endpoints2D.second(0), curSegment.endpoints2D.second(1)), cv::Scalar(255,255,255));
         cv::imshow("["+std::to_string(curIdSegment)+"] - View # "+std::to_string(curSegment.view), img);
         cv::waitKey(0);
-        **/ 
+        // **/ 
     }
     finalLines = std::vector<std::vector<int>> (allSegments.size());
 
@@ -530,9 +561,61 @@ void testLineReprojectionPlucker(const double * const cam_intrinsics,
     cv::imshow("test",test);
     cv::waitKey(0);
 }   
-void group3DLines()
+
+
+void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
+                const std::map<int, int>& mapSegment,
+                std::vector<std::vector<int>>& finalLines,
+                Hash_Map<IndexT, MyLine>& allLines)
 {
 
+    // RANSAC parameters
+    pcl::SACSegmentation<pcl::PointXYZ> seg;
+    seg.setOptimizeCoefficients(true);
+    seg.setModelType(pcl::SACMODEL_LINE);
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setDistanceThreshold(0.5);
+    seg.setMaxIterations(50);
+    int i(0);
+    for (auto it=finalLines.begin();it!=finalLines.end();){
+        PointCloudXYZ::Ptr curLinePoints(new PointCloudXYZ);
+
+        for (unsigned int iSegment = 0 ; iSegment < it->size() ; ++iSegment){
+
+            const Segment3D& curSegment = allSegments.at(mapSegment.at((*it)[iSegment])).second;
+            curLinePoints->push_back(pcl::PointXYZ(curSegment.endpoints3D.first.x(), curSegment.endpoints3D.first.y(), curSegment.endpoints3D.first.z()));
+            curLinePoints->push_back(pcl::PointXYZ(curSegment.endpoints3D.second.x(), curSegment.endpoints3D.second.y(), curSegment.endpoints3D.second.z()));
+        }
+
+        // Perform RANSAC to get line equation, which will be further optimized during optimization
+
+        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
+        pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
+
+        seg.setInputCloud(curLinePoints);
+        seg.segment(*inliers, *coefficients);
+        const MyLine  ln(*coefficients);     
+
+        if (inliers->indices.size() > 2){
+            std::vector<int> resultInliers;
+
+            for (auto inlier : inliers->indices)
+                resultInliers.push_back((*it)[inlier]);
+            
+            for (auto itSegment = it->begin();itSegment != it->end();){
+                if (std::find(it->begin(), it->end(), *itSegment) == it->end()){
+                    itSegment = it->erase(itSegment);
+                }else{
+                    ++itSegment;
+                }
+            }
+            ++i;
+            ++it;
+        }else{
+            it = finalLines.erase(it);
+        }
+
+    }
 }
 }
 }
