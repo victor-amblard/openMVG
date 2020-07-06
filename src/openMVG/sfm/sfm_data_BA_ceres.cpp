@@ -318,7 +318,7 @@ bool Bundle_Adjustment_Ceres::Adjust
     }
   }
   
-  Hash_Map<IndexT, Eigen::Vector6d> all_3d_lines;
+  Hash_Map<IndexT, MyLine> all_3d_lines;
   
   std::vector<std::pair<int, Segment3D>> allSegments;
   std::vector<std::vector<int>> all_clustered_segments;
@@ -387,8 +387,9 @@ bool Bundle_Adjustment_Ceres::Adjust
     // Get all correspondences
     std::cerr << "Looking for correspondences" << std::endl;
     findCorrespondencesAcrossViews(allFilenames, allSegments, segmentsInView, sfm_data, K, all_clustered_segments, mapIdx);
+    std::cerr << "Visualizing 3D segments" << std::endl;
     visualizeEndResult(mergedCloud, all_clustered_segments, allSegments,  mapIdx);
-    // group3DLines();
+    group3DLines(allSegments, mapIdx, all_clustered_segments, all_3d_lines);
     std::cerr << "Ended line processing" << std::endl;
   }
 
@@ -484,10 +485,9 @@ bool Bundle_Adjustment_Ceres::Adjust
   if (options.use_lines_opt){
      for (const auto& line_it: all_3d_lines)
       {
-      Eigen::Vector6d curLine3DEndpoints = line_it.second;
+      MyLine l = line_it.second;
       IndexT indexLine = line_it.first;
       
-      MyLine l(curLine3DEndpoints.block(0,0,3,1), curLine3DEndpoints.block(3,0,3,1));
       Eigen::Vector6d pluckLine3D = l.pluckerVector;
       map_lines[indexLine] = {pluckLine3D(0), pluckLine3D(1), pluckLine3D(2),pluckLine3D(3), pluckLine3D(4),pluckLine3D(5)};
     
