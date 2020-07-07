@@ -322,7 +322,8 @@ bool Bundle_Adjustment_Ceres::Adjust
   
   std::vector<std::pair<int, Segment3D>> allSegments;
   std::vector<std::vector<int>> all_clustered_segments;
-  
+      std::map<int, int> mapIdx;
+
   if (options.use_lines_opt){
     std::cout << " Using lines opt" << std::endl;
 
@@ -378,7 +379,6 @@ bool Bundle_Adjustment_Ceres::Adjust
         allDescriptors.clear();
     }
 
-    std::map<int, int> mapIdx;
 
     // Point cloud fusion
     std::cerr << "Fusing point clouds" << std::endl;
@@ -392,8 +392,8 @@ bool Bundle_Adjustment_Ceres::Adjust
     std::cerr << "Looking for correspondences" << std::endl;
     findCorrespondencesAcrossViews(allFilenames, allSegments, segmentsInView, sfm_data, K, all_clustered_segments, mapIdx);
     std::cerr << "Visualizing 3D segments" << std::endl;
-    visualizeEndResult(mergedCloud, all_clustered_segments, allSegments,  mapIdx);
     group3DLines(allSegments, mapIdx, all_clustered_segments, all_3d_lines);
+    visualizeEndResult(mergedCloud, all_clustered_segments, allSegments,  mapIdx, sfm_data);
 
     std::cerr << "Ended line processing -- " << all_3d_lines.size() << " lines for optimization" <<  std::endl;
   }
@@ -626,7 +626,7 @@ bool Bundle_Adjustment_Ceres::Adjust
       for (const auto& line_it: all_clustered_segments.at(indexLine)){
 
           IndexT idLine = line_it;
-          const Segment3D& seg = allSegments.at(idLine).second;
+          const Segment3D& seg = allSegments.at(mapIdx[idLine]).second;
           IndexT curViewId = IndexT(seg.view);
           IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;
           IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
@@ -772,24 +772,25 @@ bool Bundle_Adjustment_Ceres::Adjust
         const IndexT indexLine = line_it.first;
         Eigen::Vector6d line_refined(map_lines.at(indexLine)[0],map_lines.at(indexLine)[1],map_lines.at(indexLine)[2],
         map_lines.at(indexLine)[3],map_lines.at(indexLine)[4],map_lines.at(indexLine)[5]);
-        std::cout << " New line : " << line_refined << std::endl;
+        // std::cout << " New line : " << line_refined << std::endl;
 
-      for (const auto& lineCorrespondence: all_clustered_segments.at(indexLine))
-      {
-        IndexT idxLine = lineCorrespondence;
-        const Segment3D & seg = allSegments.at(idxLine).second;
-        IndexT curViewId = seg.view;
-        IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;
-        IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
+        for (const auto& lineCorrespondence: all_clustered_segments.at(indexLine))
+        {
+          IndexT idxSegment = lineCorrespondence;
+          const Segment3D & seg = allSegments.at(mapIdx[idxSegment]).second;
+          IndexT curViewId = seg.view;
+          IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;
+          IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
 
-        Endpoints2 cur_2d_line = seg.endpoints2D;
-        double curLine[4] = {cur_2d_line.first(0), cur_2d_line.first(1), cur_2d_line.second(0), cur_2d_line.second(1)};
+          Endpoints2 cur_2d_line = seg.endpoints2D;
+          double curLine[4] = {cur_2d_line.first(0), cur_2d_line.first(1), cur_2d_line.second(0), cur_2d_line.second(1)};
 
-        testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(idxLine)[0], curLine,sfm_data.views.at(curViewId).get());
-            
-         }
+          // testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(indexLine)[0], curLine,sfm_data.views.at(curViewId).get());
+              
+          }
       }
     }
+    
     // Structure is already updated directly if needed (no data wrapping)
 
     if (b_usable_prior)

@@ -379,11 +379,11 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
             }
         }
         std::cerr << std::endl;
-        // /** 
+        /** 
         cv::line(img, cv::Point(curSegment.endpoints2D.first(0), curSegment.endpoints2D.first(1)), cv::Point(curSegment.endpoints2D.second(0), curSegment.endpoints2D.second(1)), cv::Scalar(255,255,255));
         cv::imshow("["+std::to_string(curIdSegment)+"] - View # "+std::to_string(curSegment.view), img);
         cv::waitKey(0);
-        // **/ 
+        **/ 
     }
     finalLines = std::vector<std::vector<int>> (allSegments.size());
 
@@ -574,7 +574,7 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_LINE);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.5);
+    seg.setDistanceThreshold(0.1);
     seg.setMaxIterations(50);
     int i(0);
     for (auto it=finalLines.begin();it!=finalLines.end();){
@@ -609,6 +609,7 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
                     ++itSegment;
                 }
             }
+            allLines.insert({i, ln});
             ++i;
             ++it;
         }else{

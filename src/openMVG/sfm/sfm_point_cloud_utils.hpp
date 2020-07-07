@@ -88,7 +88,8 @@ void associateEdgePoint2Line(const View * v,
 void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud, 
                         const std::vector<std::vector<int>>& finalLines,
                         const std::vector<std::pair<int, Segment3D>>& allSegments,
-                       std::map<int, int>& mapIdx);
+                       std::map<int, int>& mapIdx,
+                      const SfM_Data& sfm_data);
 }
 }
 

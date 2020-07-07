@@ -617,42 +617,60 @@ std::vector<int> projectPointCloud(const VelodynePointCloud::Ptr inputCloud,
 void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud, 
                         const std::vector<std::vector<int>>& finalLines,
                         const std::vector<std::pair<int, Segment3D>>& allSegments,
-                       std::map<int, int>& mapIdx)
+                       std::map<int, int>& mapIdx,
+                       const SfM_Data& sfm_data)
 {
+    
     const int colMultiplier(41);
 
-     
+    /** 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
     viewer->addPointCloud<pcl::XPointXYZ> (mergedCloud, "sample cloud");
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
     viewer->addCoordinateSystem (1.0);
     viewer->initCameraParameters ();
-
+    **/
     for (unsigned int i = 0 ; i < finalLines.size(); ++i)
     {
-        Vec3 curColor(PARAMS::r[(colMultiplier * i)%255], PARAMS::g[(colMultiplier * i) % 255], PARAMS::b[(colMultiplier * i) % 255]);
-        PointCloudXYZRGB::Ptr segmentsEndpoints(new PointCloudXYZRGB);   
+        cv::Scalar curColor(PARAMS::r[(colMultiplier * i)%255]*255, PARAMS::g[(colMultiplier * i) % 255]*255, PARAMS::b[(colMultiplier * i) % 255]*255);
+        // PointCloudXYZRGB::Ptr segmentsEndpoints(new PointCloudXYZRGB);   
+        std::vector<cv::Mat> allImgs;
 
         for (unsigned int j = 0 ; j < finalLines.at(i).size() ; ++j){
             const Segment3D& curSeg = allSegments.at(mapIdx[finalLines.at(i).at(j)]).second;
+            if (j<12){
+                cv::Mat curImg = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(curSeg.view)->s_Img_path);
+                cv::line(curImg, cv::Point(curSeg.endpoints2D.first(0), curSeg.endpoints2D.first(1)),
+                            cv::Point(curSeg.endpoints2D.second(0), curSeg.endpoints2D.second(1)), curColor, 4);
+                cv::putText(curImg, "Img "+std::to_string(curSeg.view), cv::Point(30,30), 3, 1.1, cv::Scalar(0,250,0), 1);
+                allImgs.push_back(curImg);
+            }
             // Simulate 20 points on the line
+            /*
             for (int k = 0; k < 20; ++k){
                 Vec3 pointOnLine = curSeg.endpoints3D.first + float(k/20.) * (curSeg.endpoints3D.second - curSeg.endpoints3D.first);
                 segmentsEndpoints->push_back(pcl::PointXYZRGB(pointOnLine.x(), pointOnLine.y(), pointOnLine.z(), 
                 curColor.x()*255, curColor.y()*255, curColor.z()*255));
             }
+            */
         }
-    
+        if (allImgs.size() >= 10)
+            ShowManyImages("image", allImgs.size(), allImgs);
+
+        /*
         viewer->addPointCloud<pcl::PointXYZRGB> (segmentsEndpoints, std::to_string(i));
         viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, std::to_string(i));
         viewer->spinOnce (100);
         usleep(100000);
+        */
     }
+    /*
     while (!viewer->wasStopped ()){
         viewer->spinOnce (100);
 
     };
+    */
 }
 } // namespace sfm
 } // namespace openMVG
