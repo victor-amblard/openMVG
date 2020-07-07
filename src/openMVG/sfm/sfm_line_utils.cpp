@@ -92,8 +92,8 @@ bool segmentComp(std::pair<int, Segment3D>& p1, std::pair<int, Segment3D>& p2)
 int root(int i, std::vector<int>& clustersSegment){
     int root = i;
 
-    while (root != clustersSegment.at(i)){
-        root = clustersSegment.at(i);
+    while (root != clustersSegment.at(root)){
+        root = clustersSegment.at(root);
     }
     //Path compression
     while (root != i){
@@ -109,13 +109,13 @@ void joinSets(int i1, int i2,  std::vector<int>& clustersSegment, int * rank)
     int x2 = root(i2, clustersSegment);
 
     if (x1!=x2){
-        if (rank[x1] < rank[x2]){
-            rank[x1] += rank[x2];
-            clustersSegment.at(x2) = x1;
-        }else{
-            rank[x2] += rank[x1];
+        if (rank[x1] < rank[x2])
             clustersSegment.at(x1) = x2;
-        }
+        else
+            clustersSegment.at(x2) = x1;
+    }else{
+        clustersSegment.at(x2) = x1;
+        rank[x1]++;
     }
 }
 
