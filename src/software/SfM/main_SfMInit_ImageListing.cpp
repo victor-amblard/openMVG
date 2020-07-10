@@ -209,10 +209,17 @@ int main(int argc, char **argv)
 
   const EINTRINSIC e_User_camera_model = EINTRINSIC(i_User_camera_model);
 
+  bool imgList = false;
+
   if ( !stlplus::folder_exists( sImageDir ) )
   {
-    std::cerr << "\nThe input directory doesn't exist" << std::endl;
-    return EXIT_FAILURE;
+    if (!stlplus::file_exists(sImageDir)){
+        std::cerr << "\nThe input directory doesn't exist" << std::endl;
+        return EXIT_FAILURE;
+    }else{
+      imgList = true;
+   }
+      
   }
 
   if (sOutputDir.empty())
@@ -264,9 +271,25 @@ int main(int argc, char **argv)
   {
     prior_w_info.first = true;
   }
-
-  std::vector<std::string> vec_image = stlplus::folder_files( sImageDir );
-  std::sort(vec_image.begin(), vec_image.end());
+  std::vector<std::string> vec_image;
+  if (!imgList){
+     vec_image = stlplus::folder_files( sImageDir );
+    std::sort(vec_image.begin(), vec_image.end());
+  }else{
+    std::string line;
+    std::ifstream myfile (sImageDir);
+    if (myfile.is_open())
+    {
+        while(std::getline(myfile, line)){
+            std::stringstream  lineStream(line);
+            std::string lnP, imgFn, scanFn;
+            lineStream >> lnP >> imgFn >> scanFn;
+            sImageDir = stlplus::folder_part(imgFn);
+            vec_image.push_back(stlplus::filename_part(imgFn));
+        }
+        myfile.close();
+    }
+  }
 
   // Configure an empty scene with Views and their corresponding cameras
   SfM_Data sfm_data;
