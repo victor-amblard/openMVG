@@ -330,7 +330,6 @@ bool Bundle_Adjustment_Ceres::Adjust
     std::vector<std::string> allFilenames;
     
     //TODO: Read this info directly from the YAML file
-    std::string lidarPrefix = "/../../ouster_scan/subset/";
     Eigen::Matrix4d lidar2camera;
     lidar2camera << -0.70992163, -0.02460003, -0.70385092, -0.04874569,
                      0.70414167, -0.00493623, -0.71004236, -0.05289342,  
@@ -351,8 +350,8 @@ bool Bundle_Adjustment_Ceres::Adjust
     for(auto view_it:sfm_data.views){
         const View* v = view_it.second.get();
         std::string vPath = v->s_Img_path;
-        size_t pos = vPath.find("png");
-        std::string lPath = vPath.replace(pos, 3,"pcd");
+        std::string lPath = v->s_Lidar_path;
+
         allFilenames.push_back(lPath);
         std::string imgPath = sfm_data.s_root_path+"/"+v->s_Img_path;
         // Load 2D segments LSD
@@ -364,7 +363,7 @@ bool Bundle_Adjustment_Ceres::Adjust
         
         // Load lidar scan
         PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
-        readPointCloudXYZIRT(sfm_data.s_root_path+lidarPrefix+lPath, tmpCloud);
+        readPointCloudXYZIRT(sfm_data.s_lidar_path+"/"+lPath, tmpCloud);
 
         // Create 3D segments
         associateEdgePoint2Line(v, defaultLinesVector, tmpCloud, cv::imread(imgPath), K, sfm_data.GetPoseOrDie(v), resultLines, lidar2camera.inverse(), allDescriptors);
@@ -383,7 +382,7 @@ bool Bundle_Adjustment_Ceres::Adjust
     // Point cloud fusion
     std::cerr << "Fusing point clouds" << std::endl;
     PointCloudPtr<pcl::XPointXYZ> mergedCloud(new pcl::PointCloud<pcl::XPointXYZ>); 
-    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_root_path+lidarPrefix, allFilenames);
+    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_lidar_path, allFilenames);
     openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera.inverse(), mergedCloud);
     std::cerr << "Fused point clouds " << std::endl;
     openMVG::sfm::visualizePointCloud(mergedCloud);

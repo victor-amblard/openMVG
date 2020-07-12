@@ -19,6 +19,7 @@ void openMVG::sfm::View::save( Archive & ar ) const
 {
   ar(cereal::make_nvp("local_path", stlplus::folder_part(s_Img_path)),
      cereal::make_nvp("filename", stlplus::filename_part(s_Img_path)),
+     cereal::make_nvp("lidar_filename", stlplus::filename_part(s_Lidar_path)),
      cereal::make_nvp("width", ui_width),
      cereal::make_nvp("height", ui_height),
      cereal::make_nvp("id_view", id_view),
@@ -42,6 +43,7 @@ void openMVG::sfm::View::load( Archive & ar )
      cereal::make_nvp("height", ui_height),
      cereal::make_nvp("id_view", id_view),
      cereal::make_nvp("id_intrinsic", id_intrinsic),
+     cereal::make_nvp("lidar_filename", s_Lidar_path),
      cereal::make_nvp("id_pose", id_pose));
 
   s_Img_path = stlplus::create_filespec(local_path, filename);

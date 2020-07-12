@@ -22,6 +22,9 @@ struct View
   // image path on disk
   std::string s_Img_path;
 
+  // lidar path on disk
+  std::string s_Lidar_path;
+  
   // Id of the view
   IndexT id_view;
 

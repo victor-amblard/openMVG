@@ -52,6 +52,8 @@ struct SfM_Data
   /// Root Views path
   std::string s_root_path;
 
+  std::string s_lidar_path;
+
   //--
   // Accessors
   //--

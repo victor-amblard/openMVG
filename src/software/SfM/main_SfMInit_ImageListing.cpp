@@ -138,6 +138,7 @@ int main(int argc, char **argv)
   std::string sImageDir,
     sfileDatabase = "",
     sOutputDir = "",
+    sLidarDir = "",
     sKmatrix;
 
   std::string sPriorWeights;
@@ -161,6 +162,7 @@ int main(int argc, char **argv)
   cmd.add( make_switch('P', "use_pose_prior") );
   cmd.add( make_option('W', sPriorWeights, "prior_weights"));
   cmd.add( make_option('m', i_GPS_XYZ_method, "gps_to_xyz_method") );
+  cmd.add( make_option('l', sLidarDir, "lidarDirectory") );
 
   try {
       if (argc == 1) throw std::string("Invalid command line parameter.");
@@ -202,6 +204,7 @@ int main(int argc, char **argv)
             << "--focal " << focal_pixels << std::endl
             << "--intrinsics " << sKmatrix << std::endl
             << "--camera_model " << i_User_camera_model << std::endl
+            << "--lidarDirectory " << sLidarDir << std::endl
             << "--group_camera_model " << b_Group_camera_model << std::endl;
 
   // Expected properties for each image
@@ -272,6 +275,8 @@ int main(int argc, char **argv)
     prior_w_info.first = true;
   }
   std::vector<std::string> vec_image;
+  std::vector<std::string> vec_lidar;
+
   if (!imgList){
      vec_image = stlplus::folder_files( sImageDir );
     std::sort(vec_image.begin(), vec_image.end());
@@ -286,24 +291,35 @@ int main(int argc, char **argv)
             lineStream >> lnP >> imgFn >> scanFn;
             sImageDir = stlplus::folder_part(imgFn);
             vec_image.push_back(stlplus::filename_part(imgFn));
+            if (sLidarDir != "")
+              vec_lidar.push_back(stlplus::filename_part(scanFn));
         }
         myfile.close();
     }
   }
-
+  if (vec_lidar.size() == 0 ) //we just fill the vector with empty strings
+    for (auto i=0 ; i<vec_image.size() ; ++i)
+      vec_lidar.push_back("");
+      
   // Configure an empty scene with Views and their corresponding cameras
   SfM_Data sfm_data;
   sfm_data.s_root_path = sImageDir; // Setup main image root_path
+  sfm_data.s_lidar_path = sLidarDir;
   Views & views = sfm_data.views;
   Intrinsics & intrinsics = sfm_data.intrinsics;
 
   C_Progress_display my_progress_bar( vec_image.size(),
       std::cout, "\n- Image listing -\n" );
   std::ostringstream error_report_stream;
-  for ( std::vector<std::string>::const_iterator iter_image = vec_image.begin();
-    iter_image != vec_image.end();
-    ++iter_image, ++my_progress_bar )
+  
+  for ( unsigned int i = 0; i < vec_image.size();
+    ++i, ++my_progress_bar )
   {
+    std::vector<std::string>::const_iterator iter_image = vec_image.begin()+i;
+    std::vector<std::string>::const_iterator iter_lidar;
+    if (sLidarDir != "")
+      iter_lidar = vec_lidar.begin()+i;
+      
     // Read meta data to fill camera parameter (w,h,focal,ppx,ppy) fields.
     width = height = ppx = ppy = focal = -1.0;
 
@@ -471,7 +487,10 @@ int main(int argc, char **argv)
         // Add the defined intrinsic to the sfm_container
         intrinsics[v.id_intrinsic] = intrinsic;
       }
-
+      
+      v.s_Lidar_path = *iter_lidar;
+      
+      
       // Add the view to the sfm_container
       views[v.id_view] = std::make_shared<View>(v);
     }
