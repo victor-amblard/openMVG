@@ -33,7 +33,8 @@ struct ViewPriors : public View
     IndexT intrinsic_id = UndefinedIndexT,
     IndexT pose_id = UndefinedIndexT,
     IndexT width = UndefinedIndexT,
-    IndexT height = UndefinedIndexT
+    IndexT height = UndefinedIndexT,
+    const std::string & sLidPath = ""
   )
   : View
     (
@@ -42,7 +43,8 @@ struct ViewPriors : public View
       intrinsic_id,
       pose_id,
       width,
-      height
+      height,
+      sLidPath
     ),
     b_use_pose_center_(false),
     b_use_pose_rotation_(false)

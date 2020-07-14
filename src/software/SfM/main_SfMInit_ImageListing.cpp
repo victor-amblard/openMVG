@@ -311,7 +311,6 @@ int main(int argc, char **argv)
   C_Progress_display my_progress_bar( vec_image.size(),
       std::cout, "\n- Image listing -\n" );
   std::ostringstream error_report_stream;
-  
   for ( unsigned int i = 0; i < vec_image.size();
     ++i, ++my_progress_bar )
   {

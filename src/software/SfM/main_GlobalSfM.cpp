@@ -119,10 +119,10 @@ int main(int argc, char **argv)
     std::cerr << "\n Translation averaging method is invalid" << std::endl;
     return EXIT_FAILURE;
   }
-
+  
   // Load input SfM_Data scene
   SfM_Data sfm_data;
-  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS), true)) {
+  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS), false)) {
     std::cerr << std::endl
       << "The input SfM_Data file \""<< sSfM_Data_Filename << "\" cannot be read." << std::endl;
     return EXIT_FAILURE;

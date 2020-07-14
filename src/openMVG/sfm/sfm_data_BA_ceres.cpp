@@ -24,6 +24,7 @@
 #include "openMVG/sfm/sfm_data_transform.hpp"
 #include "openMVG/sfm/sfm_data.hpp"
 #include "openMVG/types.hpp"
+#include "third_party/stlplus3/filesystemSimplified/file_system.hpp"
 
 #include <ceres/rotation.h>
 #include <ceres/types.h>
@@ -350,9 +351,8 @@ bool Bundle_Adjustment_Ceres::Adjust
     for(auto view_it:sfm_data.views){
         const View* v = view_it.second.get();
         std::string vPath = v->s_Img_path;
-        std::string lPath = v->s_Lidar_path;
 
-        allFilenames.push_back(lPath);
+        allFilenames.push_back(v->s_Lidar_path);
         std::string imgPath = sfm_data.s_root_path+"/"+v->s_Img_path;
         // Load 2D segments LSD
         std::cerr << "Line segment detection " << imgPath << std::endl;
@@ -363,7 +363,7 @@ bool Bundle_Adjustment_Ceres::Adjust
         
         // Load lidar scan
         PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
-        readPointCloudXYZIRT(sfm_data.s_lidar_path+"/"+lPath, tmpCloud);
+        readPointCloudXYZIRT(stlplus::create_filespec(sfm_data.s_lidar_path, v->s_Lidar_path), tmpCloud);
 
         // Create 3D segments
         associateEdgePoint2Line(v, defaultLinesVector, tmpCloud, cv::imread(imgPath), K, sfm_data.GetPoseOrDie(v), resultLines, lidar2camera.inverse(), allDescriptors);
