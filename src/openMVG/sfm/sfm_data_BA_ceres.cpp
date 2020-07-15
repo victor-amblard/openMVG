@@ -350,32 +350,38 @@ bool Bundle_Adjustment_Ceres::Adjust
 
     for(auto view_it:sfm_data.views){
         const View* v = view_it.second.get();
-        std::string vPath = v->s_Img_path;
+        if (sfm_data.IsPoseAndIntrinsicDefined(v)){
+            std::string vPath = v->s_Img_path;
 
-        allFilenames.push_back(v->s_Lidar_path);
-        std::string imgPath = sfm_data.s_root_path+"/"+v->s_Img_path;
-        // Load 2D segments LSD
-        std::cerr << "Line segment detection " << imgPath << std::endl;
+          allFilenames.push_back(v->s_Lidar_path);
+          std::string imgPath = sfm_data.s_root_path+"/"+v->s_Img_path;
+          // Load 2D segments LSD
+          std::cerr << "Line segment detection " << imgPath << std::endl;
 
-        openMVG::sfm::computeLinesNDescriptors(imgPath, defaultLinesVector, allDescriptors);
-        std::vector<Segment3D> resultLines;
-        K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();
-        
-        // Load lidar scan
-        PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
-        readPointCloudXYZIRT(stlplus::create_filespec(sfm_data.s_lidar_path, v->s_Lidar_path), tmpCloud);
+          openMVG::sfm::computeLinesNDescriptors(imgPath, defaultLinesVector, allDescriptors);
+          std::vector<Segment3D> resultLines;
+          std::cerr << view_it.second->id_intrinsic << std::endl;
+          K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();        
+          // Load lidar scan
+          PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
 
-        // Create 3D segments
-        associateEdgePoint2Line(v, defaultLinesVector, tmpCloud, cv::imread(imgPath), K, sfm_data.GetPoseOrDie(v), resultLines, lidar2camera.inverse(), allDescriptors);
+          readPointCloudXYZIRT(stlplus::create_filespec(sfm_data.s_lidar_path, v->s_Lidar_path), tmpCloud);
 
-       for (auto elem: resultLines){
-            segmentsInView.at(v->id_view).push_back(curKey);
-            allSegments.push_back(std::make_pair(curKey, elem));
-            ++curKey;
+          // Create 3D segments
+          geometry::Pose3 curPose = sfm_data.GetPoseOrDie(v);
+
+
+          associateEdgePoint2Line(v, defaultLinesVector, tmpCloud, cv::imread(imgPath), K, curPose, resultLines, lidar2camera.inverse(), allDescriptors);
+
+        for (auto elem: resultLines){
+              segmentsInView.at(v->id_view).push_back(curKey);
+              allSegments.push_back(std::make_pair(curKey, elem));
+              ++curKey;
+          }
+
+          defaultLinesVector.clear();
+          allDescriptors.clear();
         }
-
-        defaultLinesVector.clear();
-        allDescriptors.clear();
     }
 
 

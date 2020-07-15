@@ -66,12 +66,12 @@ void openMVG::sfm::ViewPriors::load( Archive & ar )
   bool usePosePrior;
      ar(cereal::make_nvp("local_path", local_path),
      cereal::make_nvp("filename", filename),
-     cereal::make_nvp("lidar_filename", stlplus::filename_part(s_Lidar_path)),
      cereal::make_nvp("width", ui_width),
      cereal::make_nvp("height", ui_height),
      cereal::make_nvp("id_view", id_view),
      cereal::make_nvp("id_intrinsic", id_intrinsic),
-     cereal::make_nvp("id_pose", id_pose));
+     cereal::make_nvp("id_pose", id_pose),
+     cereal::make_nvp("lidar_filename", s_Lidar_path));
      ar(cereal::make_nvp("use_pose_center_prior", usePosePrior));
     std::vector<double> vec( 3 );
     ar( cereal::make_nvp( "center_weight", vec ) );

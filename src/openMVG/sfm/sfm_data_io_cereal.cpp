@@ -109,16 +109,16 @@ bool Load_Cereal(
     std::string version;
     archive(cereal::make_nvp("sfm_data_version", version));
     archive(cereal::make_nvp("root_path", data.s_root_path));
-    // archive(cereal::make_nvp("lidar_root_path", data.s_lidar_path));
+    archive(cereal::make_nvp("lidar_root_path", data.s_lidar_path));
 
     if (b_views)
     {
       if ( version >= "0.3" )
       {
+        std::cerr << flagVictor << std::endl;
         if (flagVictor)
             archive(cereal::make_nvp("views", data.viewsP));
         archive(cereal::make_nvp("views", data.views));
-
 
       }
       else // sfm_data version is < to v0.3 => Previous to OpenMVG v1.1
@@ -257,8 +257,8 @@ bool Save_Cereal(
     //  - it introduce polymorphic View data
     const std::string version = "0.3";
     archive(cereal::make_nvp("sfm_data_version", version));
-    archive(cereal::make_nvp("root_path", data.s_root_path));
     archive(cereal::make_nvp("lidar_root_path", data.s_lidar_path));
+    archive(cereal::make_nvp("root_path", data.s_root_path));
 
     if (b_views)
       archive(cereal::make_nvp("views", data.views));

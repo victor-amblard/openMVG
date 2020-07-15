@@ -32,8 +32,7 @@ template <class Archive>
 void openMVG::sfm::View::load( Archive & ar )
 {
   //Define a view with two string (base_path & basename)
-
-  // std::cout << "Loading view!" << std::endl;
+  
   std::string local_path = s_Img_path;
   std::string filename = s_Img_path;
 
@@ -42,13 +41,13 @@ void openMVG::sfm::View::load( Archive & ar )
      cereal::make_nvp("width", ui_width),
      cereal::make_nvp("height", ui_height),
      cereal::make_nvp("id_view", id_view),
-     cereal::make_nvp("lidar_filename", s_Lidar_path),
      cereal::make_nvp("id_intrinsic", id_intrinsic),
      cereal::make_nvp("id_pose", id_pose));
+  // std::cerr << "ok" << std::endl;
+
+  ar(cereal::make_nvp("lidar_filename", s_Lidar_path));
 
   s_Img_path = stlplus::create_filespec(local_path, filename);
-
-
 }
 
 
