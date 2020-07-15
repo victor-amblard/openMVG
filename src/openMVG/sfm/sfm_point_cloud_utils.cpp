@@ -397,7 +397,7 @@ void associateEdgePoint2Line(const View * v,
 
             cv::Scalar curColor(PARAMS::b[(ccId*colorMapMultiplier)%colorMapLength]*255,PARAMS::g[(ccId*colorMapMultiplier)%colorMapLength]*255,PARAMS::r[(ccId*colorMapMultiplier)%colorMapLength]*255);
             for (auto lineCC : curCC){
-                // cv::line(img, cv::Point(allLines.at(lineCC).first(0), allLines.at(lineCC).first(1)), cv::Point(allLines.at(lineCC).second(0), allLines.at(lineCC).second(1)), curColor);
+                cv::line(img, cv::Point(allLines.at(lineCC).first(0), allLines.at(lineCC).first(1)), cv::Point(allLines.at(lineCC).second(0), allLines.at(lineCC).second(1)), curColor);
                 double scoreS = getCoeffLine(allLines.at(lineCC).first, projNormal, refPoint);
                 if (scoreS < scoreMini){
                     scoreMini = scoreS;
@@ -459,7 +459,7 @@ void associateEdgePoint2Line(const View * v,
             auto finalEndpoints3d =  std::make_pair(endpointsProjA, endpointsProjB); 
             std::cerr << finalEndpoints3d.first << std::endl;
             std::cerr << finalEndpoints3d.second << std::endl;
-            /** Debug 
+            // /** Debug 
             Vec2 reprojEndpoints3d = projectW2I(finalEndpoints3d.first, projMatrix).hnormalized();
             Vec2 reprojEndpoints3d_b = projectW2I(finalEndpoints3d.second, projMatrix).hnormalized();
             std::cerr << reprojEndpoints3d << std::endl;
@@ -467,14 +467,14 @@ void associateEdgePoint2Line(const View * v,
 
             cv::circle(img, cv::Point(reprojEndpoints3d(0), reprojEndpoints3d(1)), 2, curColor);
             cv::circle(img, cv::Point(reprojEndpoints3d_b(0), reprojEndpoints3d_b(1)), 2, curColor);
-            **/
+            // **/
             if ((finalEndpoints3d.second - finalEndpoints3d.first).norm() > PARAMS::tMinLength3DSegment
                 && (finalEndpoints3d.second - finalEndpoints3d.first).norm() < 10){
                 std::vector<LBD::Descriptor> descs = allDesc.at(curCC.at(0)); // TODO: Update the descriptors!
                 Segment3D curSegment(*coefficients, finalEndpoints2d, finalEndpoints3d, v->id_view, descs);
                 result.push_back(curSegment);
                 
-                /** Debug 
+                // /** Debug 
                 cv::line(img, cv::Point(endpointsA(0), endpointsA(1)), cv::Point(endpointsB(0), endpointsB(1)), curColor);
                 for(auto& point: inliers->indices){
                     Vec2 curPt = edgesInFov.at(allPointsCC.at(point)).second.block(0,0,2,1);
@@ -486,16 +486,16 @@ void associateEdgePoint2Line(const View * v,
                 }
                 endpointsDebug->push_back(pcl::PointXYZRGB(finalEndpoints3d.first.x(), finalEndpoints3d.first.y(), finalEndpoints3d.first.z(), curColor[2], curColor[1], curColor[0]));
                 endpointsDebug->push_back(pcl::PointXYZRGB(finalEndpoints3d.second.x(), finalEndpoints3d.second.y(), finalEndpoints3d.second.z(), curColor[2], curColor[1], curColor[0]));
-                **/
+                // **/
             }
 
         }
     }
-    /** Debug
+    // /** Debug
     std::cerr << sLine << " 2D segments were detected in the image and " << count << " will be used" << std::endl;
     cv::imshow("test",img);
     cv::waitKey(300);
-    
+    /**
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
     viewer->addPointCloud<pcl::PointXYZRGB> (endpointsDebug, "segments");
@@ -642,8 +642,9 @@ void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud,
             if (j<12){
                 cv::Mat curImg = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(curSeg.view)->s_Img_path);
                 cv::line(curImg, cv::Point(curSeg.endpoints2D.first(0), curSeg.endpoints2D.first(1)),
-                            cv::Point(curSeg.endpoints2D.second(0), curSeg.endpoints2D.second(1)), curColor, 4);
-                cv::putText(curImg, "Img "+std::to_string(curSeg.view), cv::Point(30,30), 3, 1.1, cv::Scalar(0,250,0), 1);
+                            cv::Point(curSeg.endpoints2D.second(0), curSeg.endpoints2D.second(1)), curColor, 7);
+                cv::putText(curImg, "Img "+std::to_string(curSeg.view), cv::Point(30,30), 3, 1, cv::Scalar(0,0,255), 3);
+                cv::putText(curImg, std::to_string(finalLines.at(i).at(j)), cv::Point(750,30), 3, 1, cv::Scalar(0,0,255), 3);
                 allImgs.push_back(curImg);
             }
             // Simulate 20 points on the line
@@ -655,7 +656,7 @@ void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud,
             }
             */
         }
-        if (allImgs.size() >= 10)
+        if (allImgs.size() >= 4)
             ShowManyImages("image", allImgs.size(), allImgs);
 
         /*

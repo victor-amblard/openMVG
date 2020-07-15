@@ -51,9 +51,9 @@ namespace PARAMS{
     /** Matching **/
     const double tMaxRelativeOverlap(0.5);
     const double tDistanceLinePointMatch(15); 
-    const double tDistanceLineCorrespondence(300); 
-    const double tDeltaAngleAssociation(15*M_PI/180);
-    const float tMaxFeatDistance(0.07);
+    const double tDistanceLineCorrespondence(150); 
+    const double tDeltaAngleAssociation(7*M_PI/180);
+    const float tMaxFeatDistance(0.05);
     const double tOrthoDistMatch(0.5); 
 
     /** Colormap **/

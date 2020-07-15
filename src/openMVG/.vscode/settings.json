@@ -73,6 +73,7 @@
         "ref_ptr": "cpp",
         "mixinvector": "cpp",
         "fast_back_stack": "cpp",
-        "block": "cpp"
+        "block": "cpp",
+        "shader": "cpp"
     }
 }

@@ -1,4 +1,6 @@
 #include "sfm_geometric_features_extraction.hpp"
+#include <fstream>
+#include <cstdlib>
 
 #ifdef OPENMVG_USE_OPENMP
 #include <omp.h>
@@ -297,6 +299,83 @@ std::pair<bool,float> isMatched(const Segment3D& curSegment,
     return std::make_pair(valid, scoreF) ;
 }
 
+// General Idea:
+// Detect a cycle A --> B --> .. --> A  [a --> b ---> ... --> c != a] and cut the edge that has the highest (=worst) score
+
+void detectNRemoveCycles(int idEdge,
+                        int p,
+                        int * color,
+                        std::pair<int, float> * par,
+                        std::vector<std::vector<std::pair<int, std::pair<int, float>>>>& adjaLst,
+                        std::map<int, int>& mapIdx,
+                        const  std::vector<std::pair<int, Segment3D>>& allSegments,
+                        float score,
+                        std::vector<std::pair<int,int>>& toErase){
+    
+    const float MAX_SCORE = 100;
+
+    int curView = allSegments.at(mapIdx[idEdge]).second.view;
+    if (color[curView] == -1)
+        return;
+    if (color[curView] != -1 && color[curView] != -2){
+        if (idEdge != color[curView]){
+            float scoreMaxi = score;
+            float prevScore = score;
+            int sMaxi = p;
+            int eMaxi = idEdge;
+
+            int cur = p;
+            // std::cerr << idEdge << " <--[" << score <<  "]-- " << cur ;
+            int previous = idEdge;
+            
+            bool cycleNotAlreadySeen = true;
+
+            while (allSegments.at(mapIdx[cur]).second.view != curView){
+                previous = cur;
+                cur = par[cur].first;
+                prevScore = par[cur].second;
+                // TODO: Change data structure for better time complexity
+                if (std::find(toErase.begin(), toErase.end(), std::make_pair(cur, previous)) != toErase.end()){
+                    cycleNotAlreadySeen = false;
+                    break;
+                }
+                // std::cerr << " <--[" << prevScore << "]-- " << cur;
+                if (prevScore > scoreMaxi){
+                    scoreMaxi = prevScore;
+                    eMaxi = previous;
+                    sMaxi = cur;
+                }
+            }
+            // std::cerr << std::endl;
+            // sMaxi = p;
+            // eMaxi = idEdge;
+            if (cycleNotAlreadySeen){
+                std::cerr << "Invalid cycle! I will cut " << "(" << sMaxi << "," << eMaxi <<")"<< std::endl;
+                for(auto it = adjaLst.at(sMaxi).begin(); it != adjaLst.at(sMaxi).end();){
+                    if ((*it).second.first == eMaxi){
+                        it = adjaLst.at(sMaxi).erase(it);
+                        toErase.push_back(std::make_pair(sMaxi, eMaxi));
+                        break;
+                    }else{
+                        ++it;
+                    }
+                }
+            }      
+
+        }
+        return;
+    }
+    
+    color[curView] = idEdge; //ongoing processing
+    par[idEdge] = std::make_pair(p, score);
+
+    for (auto elem: adjaLst.at(idEdge))
+        if (elem.second.first != par[idEdge].first && std::find(toErase.begin(), toErase.end(), std::make_pair(idEdge, elem.second.first)) == toErase.end())
+            detectNRemoveCycles(elem.second.first, idEdge, color, par, adjaLst, mapIdx, allSegments, elem.second.second, toErase);
+    
+    color[curView] = -1; //processed
+}
+
 //Checked
 void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                                     std::vector<std::pair<int, Segment3D>>& allSegments,
@@ -307,11 +386,16 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                                     std::map<int, int>& mapSegment)
 {
 
-    
+    int nViews = sfm_data.GetViews().size();
+    const int MAX_SCORE = 100;
+    const float EPS_F = 0.0001;
     std::cerr << "There are " << allSegments.size() << " 3D segments in the dataset" << std::endl;
 
     std::sort(allSegments.begin(), allSegments.end(), segmentComp); //sort by desc length
     std::vector<std::vector<int>> lineClusters;
+    std::vector<std::vector<int>> setIdsByView(sfm_data.GetViews().size());
+    std::vector<std::vector<std::pair<int, std::pair<int, float>>>> allDataAssociations(allSegments.size());
+    Hash_Map<int, std::pair<int, int>> mapDataAssociations;
 
     std::vector<int> clustersSegment(allSegments.size());
     int rank[10000];
@@ -319,6 +403,8 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
         clustersSegment.at(i) = i;
         rank[i] = 1;
     }
+    
+    int curIdxDA(0);
 
     for (unsigned int iSegment = 0; iSegment < allSegments.size() ; ++iSegment)
         mapSegment[allSegments.at(iSegment).first] = iSegment;
@@ -343,7 +429,7 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
             const int width = sfm_data.GetViews().at(curSegment.view).get()->ui_width;
             const int height = sfm_data.GetViews().at(curSegment.view).get()->ui_height;
 
-            if (nView != curSegment.view)
+            if (nView != curSegment.view) //We want to avoid to have twice the same view in the same set
             {
                 float minScore = 100;
                 int minSegmentId = 0;
@@ -375,22 +461,176 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                     // << ")" << std::endl;
                     #pragma omp critical
                     joinSets(curIdSegment, minSegmentId, clustersSegment, rank);
+                    allDataAssociations.at(curIdSegment).push_back(std::make_pair(curIdxDA, std::make_pair(minSegmentId, minScore)));
+                    mapDataAssociations.insert({curIdxDA, std::make_pair(curIdSegment, minSegmentId)});
+                    ++curIdxDA;
                 }
             }
+        
         }
-        std::cerr << std::endl;
         /** 
         cv::line(img, cv::Point(curSegment.endpoints2D.first(0), curSegment.endpoints2D.first(1)), cv::Point(curSegment.endpoints2D.second(0), curSegment.endpoints2D.second(1)), cv::Scalar(255,255,255));
         cv::imshow("["+std::to_string(curIdSegment)+"] - View # "+std::to_string(curSegment.view), img);
         cv::waitKey(0);
         **/ 
     }
-    finalLines = std::vector<std::vector<int>> (allSegments.size());
+    Hash_Map<int, int> daIdx2ConsecutiveIdx;
+    Hash_Map<int, int> daIdx2ConsecutiveIdxR;
+    int countKey(0);
+    int * allObs = new int [nViews];
+    for (int i = 0 ; i < nViews;++i)
+        allObs[i] = 0;
 
+    for (int iView = 0 ; iView < nViews ; ++iView){
+        for (auto& elem: mapDataAssociations){
+            int key = elem.second.first;
+            if (allSegments.at(mapSegment[key]).second.view == iView && daIdx2ConsecutiveIdx.find(key) == daIdx2ConsecutiveIdx.end()){
+                daIdx2ConsecutiveIdx[key] = countKey;
+                daIdx2ConsecutiveIdxR[countKey] = key;
+                ++countKey;
+                allObs[iView] ++;
+            }
+            int key2 = elem.second.second;
+            if (allSegments.at(mapSegment[key2]).second.view == iView && daIdx2ConsecutiveIdx.find(key2) == daIdx2ConsecutiveIdx.end()){
+                daIdx2ConsecutiveIdx[key2] = countKey;
+                daIdx2ConsecutiveIdxR[countKey] = key2;
+                ++countKey;
+                allObs[iView] ++;
+
+            }
+
+        }
+    }
+    std::ofstream fileO;
+    fileO.open("/home/victor/Data/Stages/MIT/clear/test.txt");
+    fileO << std::to_string(countKey) << "\n"; 
+    fileO << std::to_string(sfm_data.GetViews().size()) << "\n"; 
+    int totalDA = curIdxDA; 
+
+    for (int i = 0 ; i < nViews ; ++i)
+        fileO << std::to_string(allObs[i]) << " "; 
+
+    fileO << "\n";
+    for (auto& elem: mapDataAssociations){
+        int n1 = daIdx2ConsecutiveIdx[elem.second.first];
+        int n2 = daIdx2ConsecutiveIdx[elem.second.second];
+        fileO << std::to_string(n1) << " " << std::to_string(n2) << "\n";
+    }
+    fileO.close();
+
+    std::system("cd /home/victor/Data/Stages/MIT/clear/CLEAR_Python/ && python3 readFromFile.py");
+
+    for (unsigned int i=0;i<allSegments.size();++i){
+        clustersSegment.at(i) = i;
+        rank[i] = 1;
+    }
+    std::string line;
+    ifstream myfile ("/home/victor/Data/Stages/MIT/clear/test_output.txt");
+    if (myfile.is_open())
+    {
+        while(std::getline(myfile, line)){
+            std::stringstream  lineStream(line);
+
+            int curA, curB;
+            lineStream >> curA;
+            lineStream >> curB;
+            int eLeft = daIdx2ConsecutiveIdxR[curA];
+            int eRight = daIdx2ConsecutiveIdxR[curB];
+
+            joinSets(eLeft, eRight, clustersSegment, rank);
+        }
+        myfile.close();
+    }
+
+    finalLines = std::vector<std::vector<int>> (allSegments.size());
     for (unsigned int i = 0; i < clustersSegment.size(); ++i){
         int idRoot = root(i, clustersSegment);
         finalLines.at(idRoot).push_back(i);
     }
+    
+
+    // Trim correspondence set
+    // Build an oriented weighted graph with edges = views, vertices = data association
+    // Only keep vertices with the lowest weight
+    /*
+    std::vector<std::pair<int, int>> toEraseDA;
+    
+    int allIndicesDA[nViews][nViews];
+    Eigen::MatrixXf adjMatrix;
+    
+    for (int iSet = 0 ; iSet < finalLines.size() ; ++iSet){
+        adjMatrix = Eigen::MatrixXf::Constant(nViews, nViews, MAX_SCORE);
+        
+        for (int i = 0 ; i < nViews ; ++i)
+            for(int j = 0 ; j < nViews ; ++j)
+                allIndicesDA[i][j] = 0;
+
+        for (auto segmentPreId : finalLines.at(iSet)){
+            int view1 = allSegments.at(mapSegment[segmentPreId]).second.view;
+
+            for(auto dataAssoc : allDataAssociations.at(segmentPreId)){                    
+                int view2 = allSegments.at(mapSegment[dataAssoc.second.first]).second.view;
+                if (adjMatrix(view1, view2) > MAX_SCORE - EPS_F){
+                    adjMatrix(view1, view2) = dataAssoc.second.second;
+                    allIndicesDA[view1][view2] = dataAssoc.first;
+                }else{
+                    // std::cerr << "Old value for: (" << view1 << "," << view2 <<") : " << adjMatrix(view1, view2) << ", new value: " << dataAssoc.second.second << std::endl;
+                    if (adjMatrix(view1, view2) > dataAssoc.second.second){
+                        int idxDA = allIndicesDA[view1][view2];
+                        toEraseDA.push_back(mapDataAssociations[idxDA]);
+                        allIndicesDA[view1][view2] = dataAssoc.first;
+                        // Remove previous data association
+
+                    } else {
+                        toEraseDA.push_back(mapDataAssociations[dataAssoc.first]);
+                        // Remove current data association
+                    }
+                }
+            }
+        }
+        
+        const int nEdges = finalLines.at(iSet).size();
+        int * color = new int [nViews];
+        std::pair<int, float> * par = new std::pair<int, float>[100000];
+        for (int i = 0 ; i < nViews ;++i)
+            color[i] = -2; //NOT SEEN
+        par[99999] = std::make_pair(99999, 0.f);
+        if (finalLines.at(iSet).size() > 0){
+            detectNRemoveCycles(finalLines.at(iSet).at(0), 99999,color, par, allDataAssociations, mapSegment, allSegments, 0, toEraseDA);
+            std::cerr << " --- " << std::endl;
+        } 
+        
+    }
+    */
+   /*
+    std::cerr << toEraseDA.size() << " incorrect data associations will be removed out of " << totalDA << std::endl;
+
+    for (auto result: toEraseDA){   
+        int r1 = root(result.first, clustersSegment);
+
+        Segment3D seg1 = allSegments.at(mapSegment[result.first]).second;
+        Segment3D seg2 = allSegments.at(mapSegment[result.second]).second;
+        std::cerr << "About to erase DA between segments " << mapSegment[result.first] << " (" << seg1.view << " ) and " << mapSegment[result.second] << "("<<seg2.view<<")"<<std::endl;
+        cv::Mat img1 = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(seg1.view)->s_Img_path);
+        cv::Mat img2 = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(seg2.view)->s_Img_path);
+        cv::line(img1, cv::Point(seg1.endpoints2D.first(0),seg1.endpoints2D.first(1)), cv::Point(seg1.endpoints2D.second(0),seg1.endpoints2D.second(1)), cv::Scalar(0,0,255),5);
+        cv::line(img2, cv::Point(seg2.endpoints2D.first(0),seg2.endpoints2D.first(1)), cv::Point(seg2.endpoints2D.second(0),seg2.endpoints2D.second(1)), cv::Scalar(0,0,255), 5);
+        std::vector<cv::Mat> tmp_img = {img1, img2};
+        // ShowManyImages("Incorrect DA", 2, tmp_img);
+
+        auto it2Remove = std::find(finalLines.at(r1).begin(), finalLines.at(r1).end(), result.second);
+
+        if (it2Remove != finalLines.at(r1).end()) //TODO: Investigate why this sometimes happens (probably somethg wrong in the union/find)
+            finalLines.at(r1).erase(it2Remove);
+        
+        
+        auto it2RemoveB = std::find(finalLines.at(r1).begin(), finalLines.at(r1).end(), result.first);
+
+        if (it2RemoveB != finalLines.at(r1).end()) //TODO: Investigate why this sometimes happens (probably somethg wrong in the union/find)
+            finalLines.at(r1).erase(it2RemoveB);
+        
+    }
+    */
     for (auto it = finalLines.begin(); it!=finalLines.end();){
         std::cerr << "Cur line has " << it->size() << " views in sight" << std::endl;
         if (it->size() >= PARAMS::tMinViewsLine)
@@ -402,6 +642,8 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
     std::cerr << "After fusion and thresholding there are " << finalLines.size() << " lines found" << std::endl;
 
 }
+
+
 
 void testLineReprojectionCostFunction(const double * const cam_intrinsics,
                                       const double * const cam_extrinsics,
@@ -574,7 +816,7 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_LINE);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.1);
+    seg.setDistanceThreshold(1);
     seg.setMaxIterations(50);
     int i(0);
     for (auto it=finalLines.begin();it!=finalLines.end();){

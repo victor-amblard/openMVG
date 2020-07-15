@@ -179,8 +179,10 @@ bool GlobalSfMReconstructionEngine_RelativeMotions::Compute_Global_Rotations
   Hash_Map<IndexT, Mat3> & global_rotations
 )
 {
-  if (relatives_R.empty())
+  if (relatives_R.empty()){
     return false;
+    std::cout <<"test" << std::endl;
+  }
   // Log statistics about the relative rotation graph
   {
     std::set<IndexT> set_pose_ids;
