@@ -316,8 +316,7 @@ int main(int argc, char **argv)
   {
     std::vector<std::string>::const_iterator iter_image = vec_image.begin()+i;
     std::vector<std::string>::const_iterator iter_lidar;
-    if (sLidarDir != "")
-      iter_lidar = vec_lidar.begin()+i;
+    iter_lidar = vec_lidar.begin()+i;
       
     // Read meta data to fill camera parameter (w,h,focal,ppx,ppy) fields.
     width = height = ppx = ppy = focal = -1.0;

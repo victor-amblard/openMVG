@@ -341,7 +341,7 @@ bool Bundle_Adjustment_Ceres::Adjust
     lines_2d_per_image.reserve(sfm_data.GetViews().size());
 
     std::vector<Endpoints2> defaultLinesVector;
-    std::vector<std::vector<int>> segmentsInView(sfm_data.views.size());
+    Hash_Map<IndexT, std::vector<int>> segmentsInView;
 
     IndexT curIdxLine(0);
     int curKey(0);
@@ -350,48 +350,52 @@ bool Bundle_Adjustment_Ceres::Adjust
 
     for(auto view_it:sfm_data.views){
         const View* v = view_it.second.get();
-        if (sfm_data.IsPoseAndIntrinsicDefined(v)){
-            std::string vPath = v->s_Img_path;
+        if (!sfm_data.IsPoseAndIntrinsicDefined(v))
+          continue;
+        
+        std::string vPath = v->s_Img_path;
 
-          allFilenames.push_back(v->s_Lidar_path);
-          std::string imgPath = sfm_data.s_root_path+"/"+v->s_Img_path;
-          // Load 2D segments LSD
-          std::cerr << "Line segment detection " << imgPath << std::endl;
+        allFilenames.push_back(v->s_Lidar_path);
+        std::string imgPath = sfm_data.s_root_path+"/"+v->s_Img_path;
+        // Load 2D segments LSD
+        std::cerr << "Line segment detection " << imgPath << std::endl;
 
-          openMVG::sfm::computeLinesNDescriptors(imgPath, defaultLinesVector, allDescriptors);
-          std::vector<Segment3D> resultLines;
-          std::cerr << view_it.second->id_intrinsic << std::endl;
-          K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();        
-          // Load lidar scan
-          PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
+        openMVG::sfm::computeLinesNDescriptors(imgPath, defaultLinesVector, allDescriptors);
+        std::vector<Segment3D> resultLines;
+        std::cerr << view_it.second->id_intrinsic << std::endl;
+        K = dynamic_cast<cameras::Pinhole_Intrinsic *>(sfm_data.intrinsics.at(view_it.second->id_intrinsic).get())->K();        
+        // Load lidar scan
+        PointCloudPtr<pcl::PointXYZIRT> tmpCloud (new pcl::PointCloud<pcl::PointXYZIRT>);
 
-          readPointCloudXYZIRT(stlplus::create_filespec(sfm_data.s_lidar_path, v->s_Lidar_path), tmpCloud);
+        readPointCloudXYZIRT(stlplus::create_filespec(sfm_data.s_lidar_path, v->s_Lidar_path), tmpCloud);
 
-          // Create 3D segments
-          geometry::Pose3 curPose = sfm_data.GetPoseOrDie(v);
+        // Create 3D segments
+        geometry::Pose3 curPose = sfm_data.GetPoseOrDie(v);
 
 
-          associateEdgePoint2Line(v, defaultLinesVector, tmpCloud, cv::imread(imgPath), K, curPose, resultLines, lidar2camera.inverse(), allDescriptors);
+        associateEdgePoint2Line(v, defaultLinesVector, tmpCloud, cv::imread(imgPath), K, curPose, resultLines, lidar2camera.inverse(), allDescriptors);
+        std::vector<int> buffViews;
+        buffViews.reserve(resultLines.size());
 
         for (auto elem: resultLines){
-              segmentsInView.at(v->id_view).push_back(curKey);
+              buffViews.push_back(curKey);
               allSegments.push_back(std::make_pair(curKey, elem));
               ++curKey;
           }
-
+          segmentsInView.insert({v->id_view, buffViews});
           defaultLinesVector.clear();
           allDescriptors.clear();
-        }
+        
     }
 
 
     // Point cloud fusion
     std::cerr << "Fusing point clouds" << std::endl;
     PointCloudPtr<pcl::XPointXYZ> mergedCloud(new pcl::PointCloud<pcl::XPointXYZ>); 
-    std::vector<PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data.s_lidar_path, allFilenames);
-    openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera.inverse(), mergedCloud);
-    std::cerr << "Fused point clouds " << std::endl;
-    openMVG::sfm::visualizePointCloud(mergedCloud);
+    Hash_Map<IndexT, PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data);
+    // openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera.inverse(), mergedCloud);
+    // std::cerr << "Fused point clouds " << std::endl;
+    // openMVG::sfm::visualizePointCloud(mergedCloud);
 
     // Get all correspondences
     std::cerr << "Looking for correspondences" << std::endl;
@@ -509,6 +513,7 @@ bool Bundle_Adjustment_Ceres::Adjust
       if (options.line_opt == Line_Parameter_Type::NONE){
         problem.SetParameterBlockConstant(parameter_block);
       }
+
     }
   }
 
@@ -624,6 +629,7 @@ bool Bundle_Adjustment_Ceres::Adjust
 
   if (options.use_lines_opt){
         //Warning !! Needs to be changed
+    
     for (const auto& cur_3d_line: all_3d_lines)
     {
       IndexT indexLine = cur_3d_line.first;
@@ -631,6 +637,7 @@ bool Bundle_Adjustment_Ceres::Adjust
       for (const auto& line_it: all_clustered_segments.at(indexLine)){
 
           IndexT idLine = line_it;
+          std::cerr << idLine << std::endl;
           const Segment3D& seg = allSegments.at(mapIdx[idLine]).second;
           IndexT curViewId = IndexT(seg.view);
           IndexT curPoseId = sfm_data.views.at(curViewId)->id_pose;

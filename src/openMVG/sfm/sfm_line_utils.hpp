@@ -245,7 +245,7 @@ public:
       std::vector<LBD::Descriptor> descs):MyLine(line), endpoints2D(endpoints_), endpoints3D(endpoints2_),view(view_), descriptors(descs){}
 
     bool operator<(const Segment3D& other) const {
-        return this->norm() < other.norm();
+        return norm() < other.norm();
     }
 
 

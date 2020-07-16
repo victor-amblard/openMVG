@@ -1,4 +1,5 @@
 #include "openMVG/sfm/sfm_point_cloud_utils.hpp"
+#include "third_party/stlplus3/filesystemSimplified/file_system.hpp"
 
 namespace openMVG{
 namespace sfm{
@@ -86,26 +87,29 @@ Vec3 getEndpointLocation(const MyLine& l,
     }
     return result;
 }
-std::vector<PointCloudXYZ::Ptr> readAllClouds(const std::string& dirName, 
-                                              const std::vector<std::string>& allFilenames)
+Hash_Map<IndexT, PointCloudXYZ::Ptr> readAllClouds(const SfM_Data& sfm_data)
 {
-    std::vector<PointCloudXYZ::Ptr> results;
+    Hash_Map<IndexT, PointCloudXYZ::Ptr> results;
+    
+    for (auto view_it : sfm_data.GetViews()){
 
-    for (std::string filename: allFilenames){
+        const View* v = view_it.second.get();
+        if (!sfm_data.IsPoseAndIntrinsicDefined(v))
+            continue;
         PointCloudXYZ::Ptr curCloud(new PointCloudXYZ);
         //WARNING !!!
-        std::string xFilename = dirName + filename.substr(0,4)+".pcd";
+        std::string xFilename = stlplus::create_filespec(sfm_data.s_lidar_path, v->s_Lidar_path);
 
         if (!readPointCloud(xFilename, curCloud))
-            results.push_back(nullptr);
+            results.insert({v->id_view, nullptr});
         else
-            results.push_back(curCloud);
+            results.insert({v->id_view, curCloud});
     }
 
     return results;
 }
 
-bool fusePointClouds(const std::vector<PointCloudXYZ::Ptr>& allClouds,
+bool fusePointClouds(const Hash_Map<IndexT, PointCloudXYZ::Ptr>& allClouds,
                      const Poses& poses,
                      const Eigen::Matrix4d& lid2cam,
                      PointCloudPtr<pcl::XPointXYZ> fusedPcl,
@@ -491,10 +495,11 @@ void associateEdgePoint2Line(const View * v,
 
         }
     }
-    // /** Debug
+    /** Debug
     std::cerr << sLine << " 2D segments were detected in the image and " << count << " will be used" << std::endl;
     cv::imshow("test",img);
     cv::waitKey(300);
+    **/
     /**
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);

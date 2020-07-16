@@ -83,7 +83,7 @@ double getRange(const ::pcl::PointXYZ& p)
 }
 bool segmentComp(std::pair<int, Segment3D>& p1, std::pair<int, Segment3D>& p2)
 {
-    if (p1.second < p2.second)
+    if (p1.second < p2.second || abs(p1.second.norm() - p2.second.norm()) < pow(10.f, -6))
         return false;
     else
         return true;

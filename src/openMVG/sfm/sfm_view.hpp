@@ -41,7 +41,7 @@ struct View
     IndexT intrinsic_id = UndefinedIndexT,
     IndexT pose_id = UndefinedIndexT,
     IndexT width = UndefinedIndexT, IndexT height = UndefinedIndexT,
-    const std::string& sLidPath =  "")
+    const std::string & sLidPath =  "")
     :s_Img_path(sImgPath), id_view(view_id), id_intrinsic(intrinsic_id),
     id_pose(pose_id), ui_width(width), ui_height(height), s_Lidar_path(sLidPath)
     {}

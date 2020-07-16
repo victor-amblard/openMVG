@@ -199,6 +199,10 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
      for (const auto& view_it: sfm_data.GetViews()){
 
         const View * view = view_it.second.get();
+        
+        if (!sfm_data.IsPoseAndIntrinsicDefined(view))
+            continue;
+        
         const Pose3& transform = sfm_data.GetPoseOrDie(view_it.second.get());
         const Eigen::Matrix4d EigTransform = convertRTEigen(transform);
 
@@ -379,7 +383,7 @@ void detectNRemoveCycles(int idEdge,
 //Checked
 void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                                     std::vector<std::pair<int, Segment3D>>& allSegments,
-                                    const std::vector<std::vector<int>>& segmentsInView,
+                                    const Hash_Map<IndexT, std::vector<int>>& segmentsInView,
                                     const SfM_Data& sfm_data,
                                     const Mat3& K,
                                     std::vector<std::vector<int>>&finalLines,

@@ -38,7 +38,7 @@ namespace sfm {
 /// This object is used in order to be able to load old project files.
 struct View_version_1
 {
-  std::string s_Img_path; // image path on disk
+  std::string s_Img_path, s_Lidar_path; // image path on disk
   IndexT id_view; // Id of the view
   IndexT id_intrinsic, id_pose; // Index of intrinsics and the pose
   IndexT ui_width, ui_height; // image size
@@ -49,9 +49,10 @@ struct View_version_1
     IndexT view_id = UndefinedIndexT,
     IndexT intrinsic_id = UndefinedIndexT,
     IndexT pose_id = UndefinedIndexT,
-    IndexT width = UndefinedIndexT, IndexT height = UndefinedIndexT)
+    IndexT width = UndefinedIndexT, IndexT height = UndefinedIndexT,
+    const std::string & sLidarPath = "")
     :s_Img_path(sImgPath), id_view(view_id), id_intrinsic(intrinsic_id),
-    id_pose(pose_id), ui_width(width), ui_height(height)
+    id_pose(pose_id), ui_width(width), ui_height(height), s_Lidar_path(sLidarPath)
     {}
 
   /**
@@ -78,7 +79,7 @@ struct View_version_1
 };
 
 template <
-// JSONInputArchive/ ...
+// JSONInputArchive/ ... 
 typename archiveType
 >
 bool Load_Cereal(
@@ -102,24 +103,22 @@ bool Load_Cereal(
     return false;
 
   // Data serialization
+
   try
   {
     archiveType archive(stream);
-
     std::string version;
     archive(cereal::make_nvp("sfm_data_version", version));
-    archive(cereal::make_nvp("root_path", data.s_root_path));
     archive(cereal::make_nvp("lidar_root_path", data.s_lidar_path));
+    archive(cereal::make_nvp("root_path", data.s_root_path));
 
     if (b_views)
     {
       if ( version >= "0.3" )
       {
-        std::cerr << flagVictor << std::endl;
         if (flagVictor)
             archive(cereal::make_nvp("views", data.viewsP));
         archive(cereal::make_nvp("views", data.views));
-
       }
       else // sfm_data version is < to v0.3 => Previous to OpenMVG v1.1
       {
@@ -139,7 +138,8 @@ bool Load_Cereal(
                 v_it.second->id_intrinsic,
                 v_it.second->id_pose,
                 v_it.second->ui_width,
-                v_it.second->ui_height);
+                v_it.second->ui_height,
+                v_it.second->s_Lidar_path);
           }
         }
         catch (cereal::Exception& e)
@@ -273,7 +273,6 @@ bool Save_Cereal(
       archive(cereal::make_nvp("extrinsics", data.poses));
     else
       archive(cereal::make_nvp("extrinsics", Poses()));
-
     // Structure -> See for export in another file
     if (b_structure)
       archive(cereal::make_nvp("structure", data.structure));

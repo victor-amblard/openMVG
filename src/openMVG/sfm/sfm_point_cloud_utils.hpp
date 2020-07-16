@@ -39,12 +39,11 @@ bool readPointCloudXYZIRT(const std::string& filename,
  * Reads PCL point clouds from a vector of filenames 
  * @return vector of Point Cloud pointers
 */
-std::vector<PointCloudXYZ::Ptr> readAllClouds(const std::string& dirName, 
-                                                       const std::vector<std::string>& allFilenames);
+Hash_Map<IndexT, PointCloudXYZ::Ptr> readAllClouds(const SfM_Data& sfm_data);
 
 //Takes a vector of point cloud and fuse them into an octomap 
 // according to a vector of transforms from lidar frame to world frame
-bool fusePointClouds(const std::vector<PointCloudXYZ::Ptr>& allClouds,
+bool fusePointClouds(const Hash_Map<IndexT, PointCloudXYZ::Ptr>& allClouds,
                      const Poses& transforms,
                      const Eigen::Matrix4d& lid2cam,
                      PointCloudPtr<pcl::XPointXYZ> fusedPcl,
