@@ -169,18 +169,20 @@ bool inFOV(const Vec3& p, int w, int h){
 }
 
 
-std::vector<std::pair<uint32_t, Vec3>> getPointsInFov(PointCloudPtr<::pcl::PointXYZIRT> allPoints, int width, int height, const Mat3& K)
+std::vector<std::pair<uint32_t, Vec3>> getPointsInFov(PointCloudPtr<::pcl::PointXYZIRT> allPoints, 
+                                                      int width, 
+                                                      int height, 
+                                                      const Mat3& K)
 {
     std::vector<std::pair<uint32_t, Vec3>> result;
     uint32_t curIt(0);
-    for (auto it = allPoints->begin();it!=allPoints->end();++it){
+    for (auto it = allPoints->begin() ; it != allPoints->end() ; ++it){
         Vec3 point(it->x, it->y, it->z);
         Vec3 nPoint = projectC2I(point, K);
         if (inFOV(nPoint, width, height))
             result.push_back(std::make_pair(curIt, nPoint));
         ++curIt;
     }
-    std::cout << result.size() << " points in fov " << std::endl;
     return result;
 }
 
@@ -198,19 +200,22 @@ void associateEdgePoint2Line(const View * v,
     const int width = v->ui_width;
     const int height = v->ui_height;
 
+    //Visualization
     const int colorMapMultiplier = 29;
     const int colorMapLength = 255;
 
     const size_t sLine(allLines.size());
 
+    // DEBUG -- All lines outputted by the LSD will be colored in gray
     for (unsigned int i = 0 ; i < sLine ; ++i)
         cv::line(img, cv::Point(allLines.at(i).first(0),allLines.at(i).first(1)), cv::Point(allLines.at(i).second(0), allLines.at(i).second(1)),
         cv::Scalar(200,200,200));
+
     std::vector<std::vector<int>> points2lines(sLine);
     std::vector<std::set<int>> linesAdjacency(sLine);
 
     std::vector<int> edgePoints = projectPointCloud(inputCloud, true, img);
-    ::pcl::PointIndices::Ptr edgesIdx(new ::pcl::PointIndices ());
+    pcl::PointIndices::Ptr edgesIdx(new pcl::PointIndices ());
 
     
     for (auto& edge: edgePoints)
@@ -219,7 +224,7 @@ void associateEdgePoint2Line(const View * v,
     VelodynePointCloud::Ptr edgeCloud(new VelodynePointCloud);
 
     // Extract edge points from lidar point cloud
-    ::pcl::ExtractIndices<::pcl::PointXYZIRT> extract;
+    pcl::ExtractIndices<::pcl::PointXYZIRT> extract;
     extract.setInputCloud (inputCloud);
     extract.setIndices (edgesIdx);
     extract.setNegative (false);
@@ -228,7 +233,6 @@ void associateEdgePoint2Line(const View * v,
     pcl::transformPointCloud(*edgeCloud, *edgeCloud, lidar2camera);
 
     // Get all edge points in fov
-    // To change
     std::vector<std::pair<uint32_t, Eigen::Vector3d>> edgesInFov = getPointsInFov(edgeCloud, width, height, K);
 
     for(size_t jPoint = 0;jPoint<edgesInFov.size();++jPoint){
@@ -245,7 +249,8 @@ void associateEdgePoint2Line(const View * v,
 
             if (curDist < PARAMS::tDistanceLinePointMatch){
                 validLines.push_back(i);
-                if (curDist < miniDist && angle2Vert < PARAMS::tVertAngle){ //Since we measure edges vertically it doesn't make sense to have horizontal lines
+                //Since we measure edges vertically it doesn't make sense to have horizontal lines
+                if (curDist < miniDist && angle2Vert < PARAMS::tVertAngle){ 
                     miniDist = curDist;
                     iMini = i;
                 }
@@ -282,43 +287,46 @@ void associateEdgePoint2Line(const View * v,
     Eigen::Matrix4d K_mat = Eigen::Matrix4d::Identity();
     K_mat.block(0,0,3,3) = K;
     std::vector<int> finalLines;
+    std::vector<MyLine> tmpCoeffsLine;
+
     for(size_t iLine=0; iLine<sLine; ++iLine){
-        if (points2lines.at(iLine).size() > 2){
+        if (points2lines.at(iLine).size() < 2)
+            continue;
 
-            PointCloudPtr<pcl::PointXYZIRT> tmpCloud(new VelodynePointCloud);
+        PointCloudPtr<pcl::PointXYZIRT> tmpCloud(new VelodynePointCloud);
+        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
+        pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
 
-            for (auto j=0;j<points2lines.at(iLine).size();++j){
-                 tmpCloud->push_back(edgeCloud->points[edgesInFov.at(points2lines.at(iLine).at(j)).first]);
-              }
+        for (auto edgePointOnLine : points2lines.at(iLine))
+            tmpCloud->push_back(edgeCloud->points[edgesInFov.at(edgePointOnLine).first]);
+        
+        seg.setInputCloud(tmpCloud);
+        seg.segment(*inliers, *coefficients);
 
-            pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients());
-            pcl::PointIndices::Ptr inliers(new pcl::PointIndices());
+        if(inliers->indices.size() < minInliersLine)
+            continue;
 
-            seg.setInputCloud(tmpCloud);
-            seg.segment(*inliers, *coefficients);
-            if(inliers->indices.size() < minInliersLine)
-                continue;
+        std::vector<int> nxtIndices;
+        for (auto pt: inliers->indices)
+            nxtIndices.push_back(points2lines.at(iLine).at(pt)); 
+        
+        points2lines.at(iLine) = nxtIndices;
+        MyLine ln(*coefficients);
+        Vec3 abcCoeffs = ln.getProjection(K_mat);
+        Vec2 projNormal = Vec2(-abcCoeffs(1), abcCoeffs(0)).normalized();
 
-            std::vector<int> nxtIndices;
-            for (auto pt: inliers->indices)
-            {
-                nxtIndices.push_back(points2lines.at(iLine).at(pt)); 
-            }
-            points2lines.at(iLine) = nxtIndices;
-            MyLine ln(*coefficients);
-            Vec3 abcCoeffs = ln.getProjection(K_mat);
-            Vec2 projNormal = Vec2(-abcCoeffs(1), abcCoeffs(0)).normalized();
+        double angle2line2d = std::acos(projNormal.dot(endpoints2Normal(allLines.at(iLine))));
+        if (CLIP_ANGLE(angle2line2d) > PARAMS::tDeltaAngle3d2d) //We check that the angle between the computed 3D line and the observation is small
+            continue;
 
-            double angle2line2d = std::acos(projNormal.dot(endpoints2Normal(allLines.at(iLine))));
+        ++count;
+        finalLines.push_back(iLine);
+        tmpCoeffsLine.push_back(ln);
 
-            if (CLIP_ANGLE(angle2line2d) > PARAMS::tDeltaAngle3d2d)
-                continue;
-
-            ++count;
-            finalLines.push_back(iLine);
-
-        }
+        
     }
+
+    // Line merging
 
     pcl::SACSegmentation<pcl::PointXYZ> seg2;
     seg2.setOptimizeCoefficients(true);
@@ -327,6 +335,7 @@ void associateEdgePoint2Line(const View * v,
     seg2.setDistanceThreshold(threshDistLineRansac);
     seg2.setMaxIterations(maxIterationsLineRansac);
 
+    // DEBUG: All edge points are colored in gray 
     for (size_t i=0;i<visibility.size();++i)
         if (!visibility.at(i))
             cv::circle(img, cv::Point(edgesInFov.at(i).second(0), edgesInFov.at(i).second(1)), 1, cv::Scalar(175,175,175));
@@ -352,23 +361,29 @@ void associateEdgePoint2Line(const View * v,
                 q.pop();
 
                 for(auto lineB : linesAdjacency.at(curElem)){
-                    if (!isSeen.at(lineB) && std::find(finalLines.begin(), finalLines.end(), lineB) != finalLines.end()
+                    // We look for edge points that belong to more than one line (and lines that are similar)
+                    auto itEdgeFound = std::find(finalLines.begin(), finalLines.end(), lineB);
+                    
+                    if (!isSeen.at(lineB) && itEdgeFound != finalLines.end()
                         && angleBetweenLines(allLines.at(lineA), allLines.at(lineB)) < PARAMS::tMergeDeltaAngle){
-                            // This is not enough (e.g we have 2 // lines but w/ different depths)
-                            // That often appears when the lines are // so we can check at the distance between endpoints projected _|_
-                            Vec2 dir = endpoints2Normal(allLines.at(lineA));
-                            Vec2 norm = Vec2(-dir(1), dir(0));
-                            Vec2 projP1, projP2;
-                            projectPoint2Line2D(allLines.at(lineB).first, allLines.at(lineA).first, dir, projP1);
-                            projectPoint2Line2D(allLines.at(lineB).second, allLines.at(lineA).first, dir, projP2);
-                            double orthoDist = std::min(std::fabs((projP1-allLines.at(lineB).first).dot(norm)), std::fabs((projP2 - allLines.at(lineB).second).dot(norm)));
+                            // This is not enough (e.g we have 2 // lines but w/ different depths), so we  check at the distance between endpoints projected _|_
+                            //We need to compute the line equation in camera        
+                            // tmpCoeffsLine.at(itEdgeFound->first);
 
-                            if (orthoDist < PARAMS::tOrthoDistLineMerge){
-                                std::cerr << "We should merge " << lineA << " and " << lineB << std::endl;
-                                q.push(lineB);
-                                isSeen.at(lineB) = true;
-                                curCC.push_back(lineB);
-                            }
+                            // if(vecDist3.norm () * sqrt(1 - pow(vecDist3.dot(dirRef3)/vecDist3.norm(),2.)) < PARAMS::tOrthoDistMatch){
+                                Vec2 dir = endpoints2Normal(allLines.at(lineA));
+                                Vec2 norm = Vec2(-dir(1), dir(0));
+                                Vec2 projP1, projP2;
+                                projectPoint2Line2D(allLines.at(lineB).first, allLines.at(lineA).first, dir, projP1);
+                                projectPoint2Line2D(allLines.at(lineB).second, allLines.at(lineA).first, dir, projP2);
+                                double orthoDist = std::min(std::fabs((projP1-allLines.at(lineB).first).dot(norm)), std::fabs((projP2 - allLines.at(lineB).second).dot(norm)));
+
+                                if (orthoDist < PARAMS::tOrthoDistLineMerge){
+                                    std::cerr << "We should merge " << lineA << " and " << lineB << std::endl;
+                                    q.push(lineB);
+                                    isSeen.at(lineB) = true;
+                                    curCC.push_back(lineB);
+                                }
                         }
                     }
                 }
@@ -401,7 +416,7 @@ void associateEdgePoint2Line(const View * v,
 
             cv::Scalar curColor(PARAMS::b[(ccId*colorMapMultiplier)%colorMapLength]*255,PARAMS::g[(ccId*colorMapMultiplier)%colorMapLength]*255,PARAMS::r[(ccId*colorMapMultiplier)%colorMapLength]*255);
             for (auto lineCC : curCC){
-                cv::line(img, cv::Point(allLines.at(lineCC).first(0), allLines.at(lineCC).first(1)), cv::Point(allLines.at(lineCC).second(0), allLines.at(lineCC).second(1)), curColor);
+                cv::line(img, cv::Point(allLines.at(lineCC).first(0), allLines.at(lineCC).first(1)), cv::Point(allLines.at(lineCC).second(0), allLines.at(lineCC).second(1)), curColor,3);
                 double scoreS = getCoeffLine(allLines.at(lineCC).first, projNormal, refPoint);
                 if (scoreS < scoreMini){
                     scoreMini = scoreS;
@@ -479,7 +494,7 @@ void associateEdgePoint2Line(const View * v,
                 result.push_back(curSegment);
                 
                 // /** Debug 
-                cv::line(img, cv::Point(endpointsA(0), endpointsA(1)), cv::Point(endpointsB(0), endpointsB(1)), curColor);
+                cv::line(img, cv::Point(endpointsA(0), endpointsA(1)), cv::Point(endpointsB(0), endpointsB(1)), curColor, 3);
                 for(auto& point: inliers->indices){
                     Vec2 curPt = edgesInFov.at(allPointsCC.at(point)).second.block(0,0,2,1);
                     cv::circle(img, cv::Point(curPt(0), curPt(1)), 1, curColor);
@@ -495,11 +510,11 @@ void associateEdgePoint2Line(const View * v,
 
         }
     }
-    /** Debug
+    // /** Debug
     std::cerr << sLine << " 2D segments were detected in the image and " << count << " will be used" << std::endl;
     cv::imshow("test",img);
     cv::waitKey(300);
-    **/
+    // **/
     /**
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
@@ -519,13 +534,16 @@ void associateEdgePoint2Line(const View * v,
 bool comparator ( const std::pair<double, std::pair<int, int>>& l, const std::pair<double, std::pair<int, int>>& r)
    { return l.first > r.first; }
 
-std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const cv::Mat& rangeMap, const bool& visualization){
+std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const cv::Mat& rangeMap, 
+                                                                           const bool& visualization)
+{
 
  cv::Mat resultEdge(PARAMS::nRings, PARAMS::widthLidar, CV_32F, cv::Scalar(0));
  const float MAX_RANGE(1000.f);
 
  for(int i=0;i<PARAMS::nRings;++i){
      for(int j=PARAMS::nNeighborsSmoothness;j<PARAMS::widthLidar-PARAMS::nNeighborsSmoothness-1;++j){
+
          float sum = -(PARAMS::nNeighborsSmoothness*2+1)*rangeMap.at<float>(i,j);
           for(int k=-PARAMS::nNeighborsSmoothness;k<=PARAMS::nNeighborsSmoothness;++k){
               sum += rangeMap.at<float>(i,j+k);
@@ -533,7 +551,7 @@ std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const
           if (rangeMap.at<float>(i,j) >= MAX_RANGE-0.001)  //Avoid infinite scores
              resultEdge.at<float>(i,j) = 0;
           else
-             resultEdge.at<float>(i,j) = sum / (2*PARAMS::nNeighborsSmoothness*rangeMap.at<float>(i,j));
+             resultEdge.at<float>(i,j) = std::fabs(sum) / (2*PARAMS::nNeighborsSmoothness*rangeMap.at<float>(i,j));
      }
  }
 std::vector<std::pair<double, std::pair<int, int>>> edges;
