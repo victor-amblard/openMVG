@@ -197,6 +197,8 @@ void associateEdgePoint2Line(const View * v,
                              const std::vector<std::vector<LBD::Descriptor>>& allDesc)
 {
 
+    bool visualization = true;
+    
     const int width = v->ui_width;
     const int height = v->ui_height;
 
@@ -207,9 +209,11 @@ void associateEdgePoint2Line(const View * v,
     const size_t sLine(allLines.size());
 
     // DEBUG -- All lines outputted by the LSD will be colored in gray
-    for (unsigned int i = 0 ; i < sLine ; ++i)
-        cv::line(img, cv::Point(allLines.at(i).first(0),allLines.at(i).first(1)), cv::Point(allLines.at(i).second(0), allLines.at(i).second(1)),
-        cv::Scalar(200,200,200));
+    if (visualization){
+        for (unsigned int i = 0 ; i < sLine ; ++i)
+            cv::line(img, cv::Point(allLines.at(i).first(0),allLines.at(i).first(1)), cv::Point(allLines.at(i).second(0), allLines.at(i).second(1)),
+            cv::Scalar(200,200,200));
+    }
 
     std::vector<std::vector<int>> points2lines(sLine);
     std::vector<std::set<int>> linesAdjacency(sLine);
@@ -336,9 +340,11 @@ void associateEdgePoint2Line(const View * v,
     seg2.setMaxIterations(maxIterationsLineRansac);
 
     // DEBUG: All edge points are colored in gray 
-    for (size_t i=0;i<visibility.size();++i)
-        if (!visibility.at(i))
-            cv::circle(img, cv::Point(edgesInFov.at(i).second(0), edgesInFov.at(i).second(1)), 1, cv::Scalar(175,175,175));
+    if (visualization){
+        for (size_t i=0;i<visibility.size();++i)
+            if (!visibility.at(i))
+                cv::circle(img, cv::Point(edgesInFov.at(i).second(0), edgesInFov.at(i).second(1)), 1, cv::Scalar(175,175,175));
+    }
 
     std::cerr << "Before final merge there were : " <<  count << " lines" << std::endl;
     std::vector<bool> isSeen(sLine);
@@ -442,15 +448,15 @@ void associateEdgePoint2Line(const View * v,
             Vec2 endpointsA, endpointsB;
             std::cerr << iMini << " " << iMaxi << std::endl;
             if (iMini%2)
-                endpointsA = allLines.at(curCC.at((int)(iMini/2))).second;
+                endpointsA = allLines.at(curCC.at(static_cast<int>(iMini/2))).second;
             else
-                endpointsA = allLines.at(curCC.at((int)(iMini/2))).first;
+                endpointsA = allLines.at(curCC.at(static_cast<int>(iMini/2))).first;
 
             if (iMaxi%2)
 
-                endpointsB = allLines.at(curCC.at((int)(iMaxi/2))).second;
+                endpointsB = allLines.at(curCC.at(static_cast<int>(iMaxi/2))).second;
             else
-                endpointsB = allLines.at(curCC.at((int)(iMaxi/2))).first;
+                endpointsB = allLines.at(curCC.at(static_cast<int>(iMaxi/2))).first;
 
 
             if(inliers->indices.size() < minInliersLine)
@@ -476,16 +482,18 @@ void associateEdgePoint2Line(const View * v,
             Vec3 endpointsProjB = (world2camera.inverse() * endpointBCamera.homogeneous()).block(0,0,3,1);
             auto finalEndpoints2d =  std::make_pair(endpointsA, endpointsB);
             auto finalEndpoints3d =  std::make_pair(endpointsProjA, endpointsProjB); 
-            std::cerr << finalEndpoints3d.first << std::endl;
-            std::cerr << finalEndpoints3d.second << std::endl;
+
+            // std::cerr << finalEndpoints3d.first << std::endl;
+            // std::cerr << finalEndpoints3d.second << std::endl;
             // /** Debug 
             Vec2 reprojEndpoints3d = projectW2I(finalEndpoints3d.first, projMatrix).hnormalized();
             Vec2 reprojEndpoints3d_b = projectW2I(finalEndpoints3d.second, projMatrix).hnormalized();
-            std::cerr << reprojEndpoints3d << std::endl;
-            std::cerr << reprojEndpoints3d_b << std::endl;
-
-            cv::circle(img, cv::Point(reprojEndpoints3d(0), reprojEndpoints3d(1)), 2, curColor);
-            cv::circle(img, cv::Point(reprojEndpoints3d_b(0), reprojEndpoints3d_b(1)), 2, curColor);
+            // std::cerr << reprojEndpoints3d << std::endl;
+            // std::cerr << reprojEndpoints3d_b << std::endl;
+            if (visualization){
+                cv::circle(img, cv::Point(reprojEndpoints3d(0), reprojEndpoints3d(1)), 2, curColor);
+                cv::circle(img, cv::Point(reprojEndpoints3d_b(0), reprojEndpoints3d_b(1)), 2, curColor);
+            }
             // **/
             if ((finalEndpoints3d.second - finalEndpoints3d.first).norm() > PARAMS::tMinLength3DSegment
                 && (finalEndpoints3d.second - finalEndpoints3d.first).norm() < 10){
@@ -494,14 +502,18 @@ void associateEdgePoint2Line(const View * v,
                 result.push_back(curSegment);
                 
                 // /** Debug 
-                cv::line(img, cv::Point(endpointsA(0), endpointsA(1)), cv::Point(endpointsB(0), endpointsB(1)), curColor, 3);
+                if (visualization)
+                    cv::line(img, cv::Point(endpointsA(0), endpointsA(1)), cv::Point(endpointsB(0), endpointsB(1)), curColor, 3);
+
                 for(auto& point: inliers->indices){
                     Vec2 curPt = edgesInFov.at(allPointsCC.at(point)).second.block(0,0,2,1);
-                    cv::circle(img, cv::Point(curPt(0), curPt(1)), 1, curColor);
                     const pcl::PointXYZIRT& pclPt = edgeCloud->points[edgesInFov.at(allPointsCC.at(point)).first];
                     Vec3 ePt(pclPt.x, pclPt.y, pclPt.z);
                     Vec3 curPtInWF = (world2camera.inverse() * ePt.homogeneous()).block(0,0,3,1);
                     endpointsDebug->push_back(pcl::PointXYZRGB(curPtInWF.x(), curPtInWF.y(), curPtInWF.z(), curColor[2], curColor[1], curColor[0]));
+                    
+                    if (visualization)
+                        cv::circle(img, cv::Point(curPt(0), curPt(1)), 1, curColor);
                 }
                 endpointsDebug->push_back(pcl::PointXYZRGB(finalEndpoints3d.first.x(), finalEndpoints3d.first.y(), finalEndpoints3d.first.z(), curColor[2], curColor[1], curColor[0]));
                 endpointsDebug->push_back(pcl::PointXYZRGB(finalEndpoints3d.second.x(), finalEndpoints3d.second.y(), finalEndpoints3d.second.z(), curColor[2], curColor[1], curColor[0]));
@@ -512,8 +524,11 @@ void associateEdgePoint2Line(const View * v,
     }
     // /** Debug
     std::cerr << sLine << " 2D segments were detected in the image and " << count << " will be used" << std::endl;
-    cv::imshow("test",img);
-    cv::waitKey(300);
+    if (visualization){
+        cv::imshow("test",img);
+        cv::waitKey(300);
+    }
+
     // **/
     /**
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
@@ -613,7 +628,7 @@ std::vector<int> projectPointCloud(const VelodynePointCloud::Ptr inputCloud,
          maxiRange = std::max(maxiRange, range);
 
          double horizontalAngle = std::atan2(curPt.x, curPt.y) * 180 / M_PI;
-         int columnId = (int)(-std::round((horizontalAngle - 90.)/angRes) + PARAMS::widthLidar/2);
+         int columnId = static_cast<int>(-std::round((horizontalAngle - 90.)/angRes) + PARAMS::widthLidar/2);
 
          if (columnId >= PARAMS::widthLidar)
              columnId -= PARAMS::widthLidar;
