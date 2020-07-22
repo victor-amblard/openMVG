@@ -99,13 +99,15 @@ void testLineReprojectionCostFunction(const double * const cam_intrinsics,
                                       const double * const cam_extrinsics,
                                       const double * const line_3d_endpoint,
                                       const double * m_line_2d_endpoints,
-                                      const View * v);
+                                      const SfM_Data& sfm_data,
+                                      const int idView);
 
 void testLineReprojectionPlucker(const double * const cam_intrinsics,
                                       const double * const cam_extrinsics,
                                       const double * const line_3d_endpoint,
                                       const double * m_line_2d_endpoints,
-                                      const View * v);
+                                      const SfM_Data& sfm_data,
+                                      const int idView);
 
 void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
                 const std::map<int, int>& mapSegment,

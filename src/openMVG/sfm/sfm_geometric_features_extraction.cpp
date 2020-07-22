@@ -653,8 +653,11 @@ void testLineReprojectionCostFunction(const double * const cam_intrinsics,
                                       const double * const cam_extrinsics,
                                       const double * const line_3d_endpoint,
                                       const double * m_line_2d_endpoints,
-                                      const View * v)
+                                      const SfM_Data& sfm_data,
+                                      const int idView)
 {
+    View * v = sfm_data.GetViews().at(idView).get();
+
     const double * cam_R = cam_extrinsics;
     Eigen::Map<const Eigen::Matrix<double, 3, 1>> cam_t(&cam_extrinsics[3]);
 
@@ -663,6 +666,7 @@ void testLineReprojectionCostFunction(const double * const cam_intrinsics,
     
     ceres::AngleAxisRotatePoint(cam_R, line_3d_endpoint, transformed_point_start.data()); //3D starting point
     ceres::AngleAxisRotatePoint(cam_R, &line_3d_endpoint[3], transformed_point_end.data()); //3D end point
+
 
     // Apply the camera translation
     transformed_point_start += cam_t;
@@ -718,7 +722,7 @@ void testLineReprojectionCostFunction(const double * const cam_intrinsics,
     Eigen::Matrix<double,2,1> adjusted_2d_start = line_2d_start+(start_2d_proj_2d_line-line_2d_start).dot(dir_2d)*dir_2d;
     Eigen::Matrix<double,2,1> adjusted_2d_end = line_2d_start+(end_2d_proj_2d_line-line_2d_start).dot(dir_2d)*dir_2d;
 
-    cv::Mat test = cv::imread("/home/victor/Data/Stages/MIT/newer_college_dataset/subset/infra1/subset/"+v->s_Img_path);
+    cv::Mat test = cv::imread(sfm_data.s_root_path+"/"+v->s_Img_path);
     cv::line(test, cv::Point(m_line_2d_endpoints[0], m_line_2d_endpoints[1]), cv::Point(m_line_2d_endpoints[2], m_line_2d_endpoints[3]), cv::Scalar(255,0,0), 1, CV_AA);
     cv::line(test, cv::Point(proj_3d_point_start.x(), proj_3d_point_start.y()), cv::Point(proj_3d_point_end.x(), proj_3d_point_end.y()), cv::Scalar(255,0,0), 1, CV_AA);
     
@@ -742,8 +746,11 @@ void testLineReprojectionPlucker(const double * const cam_intrinsics,
                                       const double * const cam_extrinsics,
                                       const double * const line_3d_endpoint,
                                       const double * m_line_2d_endpoints,
-                                      const View * v)
-{
+                                      const SfM_Data& sfm_data,
+                                      const int idView)
+{   
+    View * v = sfm_data.GetViews().at(idView).get();
+
     const double * cam_R = cam_extrinsics;
     Mat3 mat_r;
     ceres::AngleAxisToRotationMatrix(cam_R, mat_r.data());
@@ -757,7 +764,8 @@ void testLineReprojectionPlucker(const double * const cam_intrinsics,
 
     Eigen::Matrix<double,4,4> projMat = Eigen::Matrix<double,4,4>::Zero();
     Eigen::Matrix<double,4,4> RT_mat =  Eigen::Matrix<double,4,4>::Identity();
-    RT_mat.block(0,0,3,3) = mat_r;
+    RT_mat.block(0,0,3,3) = mat_r
+;
     RT_mat.block(0,3,3,1) = cam_t;
     std::cerr << RT_mat << std::endl;
     const Eigen::Matrix<double,3,4> Pmat = K * RT_mat.block(0,0,3,4);
@@ -800,8 +808,8 @@ void testLineReprojectionPlucker(const double * const cam_intrinsics,
     double y0 = (-lineCoeffs(0)*x0-lineCoeffs(2))/lineCoeffs(1);
     double x1 = 1000;
     double y1 = (-lineCoeffs(0)*x1-lineCoeffs(2))/lineCoeffs(1);
-
-    cv::Mat test = cv::imread("/home/victor/Data/Stages/MIT/newer_college_dataset/subset/infra1/subset/"+v->s_Img_path);
+    std::cerr << sfm_data.s_root_path+"/"+v->s_Img_path << std::endl;
+    cv::Mat test = cv::imread(sfm_data.s_root_path+"/"+v->s_Img_path);
     cv::line(test, cv::Point(m_line_2d_endpoints[0], m_line_2d_endpoints[1]), cv::Point(m_line_2d_endpoints[2], m_line_2d_endpoints[3]), cv::Scalar(0,0,255), 2, CV_AA);
     cv::line(test, cv::Point(x0, y0), cv::Point(x1,y1), cv::Scalar(255,0,0), 2, CV_AA);
     cv::imshow("test",test);
@@ -825,10 +833,11 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
     int i(0);
     for (auto it=finalLines.begin();it!=finalLines.end();){
         PointCloudXYZ::Ptr curLinePoints(new PointCloudXYZ);
-
+        std::vector<int> resultInliers(it->size());
         for (unsigned int iSegment = 0 ; iSegment < it->size() ; ++iSegment){
 
             const Segment3D& curSegment = allSegments.at(mapSegment.at((*it)[iSegment])).second;
+            resultInliers.at(iSegment) = 0;
             curLinePoints->push_back(pcl::PointXYZ(curSegment.endpoints3D.first.x(), curSegment.endpoints3D.first.y(), curSegment.endpoints3D.first.z()));
             curLinePoints->push_back(pcl::PointXYZ(curSegment.endpoints3D.second.x(), curSegment.endpoints3D.second.y(), curSegment.endpoints3D.second.z()));
         }
@@ -842,14 +851,21 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
         seg.segment(*inliers, *coefficients);
         const MyLine  ln(*coefficients);     
 
-        if (inliers->indices.size() > 2){
-            std::vector<int> resultInliers;
-
-            for (auto inlier : inliers->indices)
-                resultInliers.push_back((*it)[inlier]);
+        if (inliers->indices.size() > 6){ //3 views
             
+            for (auto inlier : inliers->indices){
+                int idInlierSegment = static_cast<int>(std::floor(inlier/2.f));
+                resultInliers.at(idInlierSegment) += 1;
+            }
+            std::vector<int> toBeRemoved;
+            for (unsigned int i = 0 ; i < it->size() ; ++i){
+                if (resultInliers.at(i) != 2){
+                    toBeRemoved.push_back((*it)[i]);
+                }
+            }
+            std::cerr << "Will remove " << toBeRemoved.size() << " of the " << it->size() << " segments in the current cluster" << std::endl;
             for (auto itSegment = it->begin();itSegment != it->end();){
-                if (std::find(it->begin(), it->end(), *itSegment) == it->end()){
+                if (std::find(toBeRemoved.begin(), toBeRemoved.end(), *itSegment) != toBeRemoved.end()){
                     itSegment = it->erase(itSegment);
                 }else{
                     ++itSegment;
