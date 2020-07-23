@@ -225,7 +225,7 @@ for (i = 0, m = 20, n = 20; i < nArgs; i++, m += (20 + size)) {
 
     // Set the image ROI to display the current image
     // Resize the input image and copy the it to the Single Big Image
-    cv::Rect ROI(m, n, (int)( x/scale ), (int)( y/scale ));
+    cv::Rect ROI(m, n, static_cast<int>( x/scale ), static_cast<int>( y/scale ));
     cv::Mat temp; resize(img,temp, cv::Size(ROI.width, ROI.height));
     temp.copyTo(DispImage(ROI));
 }

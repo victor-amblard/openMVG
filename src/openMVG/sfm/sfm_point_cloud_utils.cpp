@@ -198,7 +198,7 @@ void associateEdgePoint2Line(const View * v,
 {
 
     bool visualization = true;
-    
+
     const int width = v->ui_width;
     const int height = v->ui_height;
 
@@ -553,53 +553,53 @@ std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const
                                                                            const bool& visualization)
 {
 
- cv::Mat resultEdge(PARAMS::nRings, PARAMS::widthLidar, CV_32F, cv::Scalar(0));
- const float MAX_RANGE(1000.f);
+    cv::Mat resultEdge(PARAMS::nRings, PARAMS::widthLidar, CV_32F, cv::Scalar(0));
+    const float MAX_RANGE(1000.f);
 
- for(int i=0;i<PARAMS::nRings;++i){
-     for(int j=PARAMS::nNeighborsSmoothness;j<PARAMS::widthLidar-PARAMS::nNeighborsSmoothness-1;++j){
+    for(int i=0;i<PARAMS::nRings;++i){
+        for(int j=PARAMS::nNeighborsSmoothness;j<PARAMS::widthLidar-PARAMS::nNeighborsSmoothness-1;++j){
 
-         float sum = -(PARAMS::nNeighborsSmoothness*2+1)*rangeMap.at<float>(i,j);
-          for(int k=-PARAMS::nNeighborsSmoothness;k<=PARAMS::nNeighborsSmoothness;++k){
-              sum += rangeMap.at<float>(i,j+k);
-          }
-          if (rangeMap.at<float>(i,j) >= MAX_RANGE-0.001)  //Avoid infinite scores
-             resultEdge.at<float>(i,j) = 0;
-          else
-             resultEdge.at<float>(i,j) = std::fabs(sum) / (2*PARAMS::nNeighborsSmoothness*rangeMap.at<float>(i,j));
-     }
- }
-std::vector<std::pair<double, std::pair<int, int>>> edges;
-std::vector<std::pair<double, std::pair<int, int>>> processedEdges;
+            float sum = -(PARAMS::nNeighborsSmoothness*2+1)*rangeMap.at<float>(i,j);
+            for(int k=-PARAMS::nNeighborsSmoothness;k<=PARAMS::nNeighborsSmoothness;++k){
+                sum += rangeMap.at<float>(i,j+k);
+            }
+            if (rangeMap.at<float>(i,j) >= MAX_RANGE-0.001)  //Avoid infinite scores
+                resultEdge.at<float>(i,j) = 0;
+            else
+                resultEdge.at<float>(i,j) = std::fabs(sum) / (2*PARAMS::nNeighborsSmoothness*rangeMap.at<float>(i,j));
+        }
+    }
+    std::vector<std::pair<double, std::pair<int, int>>> edges;
+    std::vector<std::pair<double, std::pair<int, int>>> processedEdges;
 
- for (int i=0;i<PARAMS::nRings;++i)
-     for(int j=0;j<PARAMS::widthLidar; ++j)
+    for (int i=0;i<PARAMS::nRings;++i)
+        for(int j=0;j<PARAMS::widthLidar; ++j)
         if (resultEdge.at<float>(i,j) > PARAMS::tEdgeSmoothness)
             edges.push_back(std::make_pair(resultEdge.at<float>(i,j), std::make_pair(i,j)));
 
- //sort vector by desc smoothness score
- 
- std::sort(edges.begin(), edges.end(), comparator);
- bool seen[PARAMS::nRings][PARAMS::widthLidar];
- for (auto i=0;i<PARAMS::nRings;++i)
+    //sort vector by desc smoothness score
+
+    std::sort(edges.begin(), edges.end(), comparator);
+    bool seen[PARAMS::nRings][PARAMS::widthLidar];
+    for (auto i=0;i<PARAMS::nRings;++i)
     for (auto j=0;j<PARAMS::widthLidar;++j)
         seen[i][j] = false;
- // There's an issue with this part
- for (auto elem : edges){
-     bool valid = true;
-     for (int j = std::max(0,elem.second.second - PARAMS::nNeighborsSmoothness);j<std::min(PARAMS::widthLidar-1, elem.second.second + PARAMS::nNeighborsSmoothness);++j)
-         if(seen[elem.second.first][j])
-             valid = false;
+    // There's an issue with this part
+    for (auto elem : edges){
+        bool valid = true;
+        for (int j = std::max(0,elem.second.second - PARAMS::nNeighborsSmoothness);j<std::min(PARAMS::widthLidar-1, elem.second.second + PARAMS::nNeighborsSmoothness);++j)
+            if(seen[elem.second.first][j])
+                valid = false;
 
-     if (valid){
-         //We add it to edges
-         processedEdges.push_back(elem);
-         seen[elem.second.first][elem.second.second] = true;
-     }
- }
- std::cerr << " Found " << processedEdges.size() << " edges in current lidar scan" << std::endl;
+        if (valid){
+            //We add it to edges
+            processedEdges.push_back(elem);
+            seen[elem.second.first][elem.second.second] = true;
+        }
+    }
+    std::cerr << " Found " << processedEdges.size() << " edges in current lidar scan" << std::endl;
 
- return processedEdges;
+    return processedEdges;
 }
 
 std::vector<int> projectPointCloud(const VelodynePointCloud::Ptr inputCloud, 

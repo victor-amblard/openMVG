@@ -49,11 +49,11 @@ namespace PARAMS{
     const int widthLidar(1024);
 
     /** Matching **/
-    const double tMaxRelativeOverlap(0.5);
+    const double tMaxRelativeOverlap(0);
     const double tDistanceLinePointMatch(15); 
-    const double tDistanceLineCorrespondence(150); 
-    const double tDeltaAngleAssociation(7*M_PI/180);
-    const float tMaxFeatDistance(0.05);
+    const double tDistanceLineCorrespondence(200); 
+    const double tDeltaAngleAssociation(10*M_PI/180);
+    const float tMaxFeatDistance(0.1);
     const double tOrthoDistMatch(0.5); 
 
     /** Colormap **/
