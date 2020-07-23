@@ -103,7 +103,6 @@ bool Load_Cereal(
     return false;
 
   // Data serialization
-
   try
   {
     archiveType archive(stream);

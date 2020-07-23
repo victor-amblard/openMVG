@@ -17,7 +17,6 @@
 template <class Archive>
 void openMVG::sfm::View::save( Archive & ar ) const
 {
-  std::cerr << s_Lidar_path << std::endl;
   ar(cereal::make_nvp("local_path", stlplus::folder_part(s_Img_path)),
      cereal::make_nvp("filename", stlplus::filename_part(s_Img_path)),
      cereal::make_nvp("width", ui_width),
@@ -36,7 +35,7 @@ void openMVG::sfm::View::load( Archive & ar )
   
   std::string local_path = s_Img_path;
   std::string filename = s_Img_path;
-  std::string lFilename = s_Lidar_path;
+
   ar(cereal::make_nvp("local_path", local_path),
      cereal::make_nvp("filename", filename),
      cereal::make_nvp("width", ui_width),
@@ -44,7 +43,7 @@ void openMVG::sfm::View::load( Archive & ar )
      cereal::make_nvp("id_view", id_view),
      cereal::make_nvp("id_intrinsic", id_intrinsic),
      cereal::make_nvp("id_pose", id_pose),
-     cereal::make_nvp("lidar_filename", lFilename));
+     cereal::make_nvp("lidar_filename", s_Lidar_path));
 
   s_Img_path = stlplus::create_filespec(local_path, filename);
 }
