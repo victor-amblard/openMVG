@@ -275,7 +275,7 @@ std::pair<bool,float> isMatched(const Segment3D& curSegment,
     Vec3 reprojStart = projectW2I(curSegment.endpoints3D.first, proj2Ref);
     Vec3 reprojEnd = projectW2I(curSegment.endpoints3D.second, proj2Ref);
 
-    Endpoints2 endpointsCur = std::make_pair(reprojStart.hnormalized(), reprojStart.hnormalized());
+    Endpoints2 endpointsCur = std::make_pair(reprojStart.hnormalized(), reprojEnd.hnormalized());
 
     double totalDistance  = distPoint2Line2D((endpointsCur.first+endpointsCur.second)/2, refSegment.endpoints2D.first, normalRef);
     totalDistance /= PARAMS::tDistanceLineCorrespondence;
@@ -398,8 +398,8 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
     std::sort(allSegments.begin(), allSegments.end(), segmentComp); //sort by desc length
     std::vector<std::vector<int>> lineClusters;
     std::vector<std::vector<int>> setIdsByView(sfm_data.GetViews().size());
-    std::vector<std::vector<std::pair<int, std::pair<int, float>>>> allDataAssociations(allSegments.size());
-    Hash_Map<int, std::pair<int, int>> mapDataAssociations;
+    Hash_Map<int, DataAssociation> mapDataAssociations;
+    std::vector<std::vector<int>> allDataAssociations(allSegments.size());
 
     std::vector<int> clustersSegment(allSegments.size());
     int rank[10000];
@@ -465,8 +465,9 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                     // << ")" << std::endl;
                     #pragma omp critical
                     joinSets(curIdSegment, minSegmentId, clustersSegment, rank);
-                    allDataAssociations.at(curIdSegment).push_back(std::make_pair(curIdxDA, std::make_pair(minSegmentId, minScore)));
-                    mapDataAssociations.insert({curIdxDA, std::make_pair(curIdSegment, minSegmentId)});
+                    DataAssociation da(curIdxDA, curIdSegment, minSegmentId, minScore);
+                    allDataAssociations.at(curIdSegment).push_back(curIdxDA);
+                    mapDataAssociations.insert({curIdxDA, da});
                     ++curIdxDA;
                 }
             }
@@ -487,14 +488,16 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
 
     for (int iView = 0 ; iView < nViews ; ++iView){
         for (auto& elem: mapDataAssociations){
-            int key = elem.second.first;
+            const DataAssociation& da(elem.second);
+            
+            int key = da.idSegmentA;    
             if (allSegments.at(mapSegment[key]).second.view == iView && daIdx2ConsecutiveIdx.find(key) == daIdx2ConsecutiveIdx.end()){
                 daIdx2ConsecutiveIdx[key] = countKey;
                 daIdx2ConsecutiveIdxR[countKey] = key;
                 ++countKey;
                 allObs[iView] ++;
             }
-            int key2 = elem.second.second;
+            int key2 = da.idSegmentB;
             if (allSegments.at(mapSegment[key2]).second.view == iView && daIdx2ConsecutiveIdx.find(key2) == daIdx2ConsecutiveIdx.end()){
                 daIdx2ConsecutiveIdx[key2] = countKey;
                 daIdx2ConsecutiveIdxR[countKey] = key2;
@@ -516,8 +519,10 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
 
     fileO << "\n";
     for (auto& elem: mapDataAssociations){
-        int n1 = daIdx2ConsecutiveIdx[elem.second.first];
-        int n2 = daIdx2ConsecutiveIdx[elem.second.second];
+        const DataAssociation& da(elem.second);
+
+        int n1 = daIdx2ConsecutiveIdx[da.idSegmentA];
+        int n2 = daIdx2ConsecutiveIdx[da.idSegmentB];
         fileO << std::to_string(n1) << " " << std::to_string(n2) << "\n";
     }
     fileO.close();
@@ -533,6 +538,7 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
     if (myfile.is_open())
     {
         while(std::getline(myfile, line)){
+
             std::stringstream  lineStream(line);
 
             int curA, curB;

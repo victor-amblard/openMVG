@@ -40,6 +40,20 @@ namespace openMVG {
 namespace sfm {
 using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
 
+class DataAssociation{
+    public:
+        int idDA;
+        int idSegmentA;
+        int idSegmentB;
+        double score;
+    
+    DataAssociation(int da, int segA, int segB, double score_){
+        idDA = da;
+        idSegmentA = segA;
+        idSegmentB = segB;
+        score = score_;
+    }
+};
 /** Detects line segments in an image 
  * using a 3rd party library (LSD) and computes their descriptors 
 **/
