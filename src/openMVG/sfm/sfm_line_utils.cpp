@@ -17,7 +17,19 @@ double pointToLineDist(const Vec2& point,
 
     return num/den;
 }
+float getParameter3(const Vec3& point,
+                    const Vec3& refPoint,
+                    const MyLine& lineModel)
+{
+    Vec3 nDir = lineModel.getDirection().normalized();
+    Vec3 delta = point - refPoint;
 
+    if (delta.dot(nDir) > 0)
+        return delta.norm();
+    else
+        return -delta.norm();
+
+}
 void projectPoint2Line2D(const Vec2& curPoint,
                          const Vec2& pointLine,
                          const Vec2& normalizedDirLine,
@@ -236,6 +248,55 @@ cv::imshow( title, DispImage);
 cv::waitKey();
 
 // End the number of arguments
+}
+void PRINT_VECTOR(const Eigen::VectorXf vector, int n){
+    std::cerr << "[";
+    for (int i = 0 ; i < n ; ++i)
+       std::cerr << vector(i) << "," ;
+    std::cerr << "]" << std::endl;
+}
+Vec3 getEndpointLocation(const MyLine& l,
+                         const Vec2 pt,
+                         const Mat3& K,
+                         const Mat4& projMat){
+
+
+    Vec3 result = Vec3::Zero();
+
+    CGAL_K::Point_3 origin((CGAL_K::RT)0, (CGAL_K::RT)0, (CGAL_K::RT)0);
+
+    Vec3 pointCamera = K.inverse() * pt.homogeneous(); //transform image -> camera
+    Vec3 pointWorld = (projMat.inverse() * pointCamera.homogeneous()).hnormalized(); //transform camera -> world (or camera --> camera) 
+    
+    CGAL_K::Point_3 endpointProjCamera((CGAL_K::RT)pointWorld(0), (CGAL_K::RT)pointWorld(1), (CGAL_K::RT)pointWorld(2));
+    CGAL_K::Line_3 epipolarLine(origin, endpointProjCamera);
+    
+    CGAL_K::Point_3 cPoint3d((CGAL_K::RT)l.pointDirRep(0), (CGAL_K::RT)l.pointDirRep(1), (CGAL_K::RT)l.pointDirRep(2));
+    CGAL_K::Direction_3 cDirLine((CGAL_K::RT)l.pointDirRep(3), (CGAL_K::RT)l.pointDirRep(4), (CGAL_K::RT)l.pointDirRep(5));
+    CGAL_K::Line_3 lineEqn(cPoint3d, cDirLine);
+    
+
+    if (CGAL::do_intersect(epipolarLine, lineEqn)){
+        auto resultInter = CGAL::intersection(epipolarLine, lineEqn);
+        if (const CGAL_K::Point_3* p = boost::get<CGAL_K::Point_3>(&*resultInter)){
+            result = Vec3(CGAL::to_double(p->x()), CGAL::to_double(p->y()), CGAL::to_double(p->z()));
+        }else{
+            std::cerr << "Epipolar line is // to 3D line" << std::endl;
+        }
+    }else{
+        //We have 2 skew lines: https://en.wikipedia.org/wiki/Skew_lines
+        // v1 = p1 + t*d1, v2 = p2+t*d2
+        // n = d1 x d2, n1 = d1 x n
+        // c2 = p2 + (p1 - p2).n1 / d2.n1 * d2
+        CGAL_K::Vector_3 cp = CGAL::cross_product(epipolarLine.to_vector(), lineEqn.to_vector());
+        cp = cp/cp.squared_length();
+        CGAL_K::Vector_3 normal1 = CGAL::cross_product(epipolarLine.to_vector(), cp);
+        CGAL_K::Vector_3 normal2 = CGAL::cross_product(cDirLine.to_vector(), cp);
+        CGAL_K::RT coeff =  CGAL::scalar_product(origin - cPoint3d ,normal1) / CGAL::scalar_product(cDirLine.to_vector(), normal1);
+        CGAL_K::Point_3 closestPt2Epipolar = cPoint3d + coeff*cDirLine.to_vector();
+        result = Vec3(CGAL::to_double(closestPt2Epipolar.x()), CGAL::to_double(closestPt2Epipolar.y()), CGAL::to_double(closestPt2Epipolar.z()));
+    }
+    return result;
 }
 } //namespace sfm
 } //namespace openMVG

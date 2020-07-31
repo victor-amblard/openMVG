@@ -49,9 +49,9 @@ namespace PARAMS{
     const int widthLidar(1024);
 
     /** Matching **/
-    const double tMaxRelativeOverlap(0);
-    const double tDistanceLinePointMatch(15); 
-    const double tDistanceLineCorrespondence(200); 
+    const double tMaxRelativeOverlap(0.3);
+    const double tDistanceLinePointMatch(10); 
+    const double tDistanceLineCorrespondence(300); 
     const double tDeltaAngleAssociation(10*M_PI/180);
     const float tMaxFeatDistance(0.1);
     const double tOrthoDistMatch(0.5); 
@@ -123,7 +123,11 @@ class MyLine{
         Eigen::Vector6d pluckerVector;
         Eigen::Vector6d pointDirRep;
 public:
-            Vec3 getProjection(const Eigen::Matrix4d & projMat) const {
+        Vec3 getDirection(void) const{
+            return Vec3(pluckerMatrix(3,0), pluckerMatrix(3,1), pluckerMatrix(3,2));
+        }
+        
+        Vec3 getProjection(const Eigen::Matrix4d & projMat) const {
             Eigen::Matrix4d projPlucker = projMat * pluckerMatrix * projMat.transpose();
             Vec3 lineCoeff(projPlucker(2,1), projPlucker(0,2), projPlucker(1,0));
 
@@ -141,9 +145,17 @@ public:
         }
         MyLine(const pcl::ModelCoefficients& line) : MyLine(Vec3(line.values[0], line.values[1], line.values[2]), Vec3(line.values[0]+line.values[3], line.values[1]+line.values[4], line.values[2]+line.values[5]))
         {
-
+            
         }
+        MyLine(const Eigen::Vector6d model) {
+            pluckerVector = model;
+            setMatrixFromVector();
 
+            double normCst = pluckerVector.block(0,0,3,1).norm();
+            Eigen::Vector4d closestPointH = pluckerMatrix * pluckerMatrix * Eigen::Vector4d(0,0,0,1); //[L]x[L]x\piinf
+            pointDirRep.block(0,0,3,1) = closestPointH.hnormalized();
+            pointDirRep.block(3,0,3,1) = getDirection().normalized();
+        }
     private:
         void setMatrixFromVector(void){
             pluckerMatrix = Eigen::Matrix4d::Zero();
@@ -272,9 +284,9 @@ double distPoint2Segment(const Vec2& point,
                          const Endpoints2& endpoints,
                          const Vec2 normal);
 
-float getParameterPointLine3(const Vec3& pointA,
-                             const Vec3& pointB,
-                             const Vec3& normalizedDirection);
+float getParameter3(const Vec3& point,
+                    const Vec3& refPoint,
+                    const MyLine& lineModel);
 
 Vec2 equation2Normal2D(const Vec3& eqn);
 
@@ -297,6 +309,13 @@ Vec3 projectC2I(const Vec3& pt, const Mat3& K);
 Vec3 projectW2I(const Vec3& pt, const Mat34& projMatrix);
 
 void ShowManyImages(std::string title, int nArgs, std::vector<cv::Mat>& imgs) ;
+
+void PRINT_VECTOR(const Eigen::VectorXf vector, int n);
+
+Vec3 getEndpointLocation(const MyLine& l,
+                         const Vec2 pt,
+                         const Mat3& K,
+                         const Mat4& projMat = Mat4::Identity());
 }
 }
 #endif

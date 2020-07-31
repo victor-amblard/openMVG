@@ -45,9 +45,9 @@ class DataAssociation{
         int idDA;
         int idSegmentA;
         int idSegmentB;
-        double score;
+        Eigen::Vector4f score;
     
-    DataAssociation(int da, int segA, int segB, double score_){
+    DataAssociation(int da, int segA, int segB, Eigen::Vector4f& score_){
         idDA = da;
         idSegmentA = segA;
         idSegmentB = segB;
@@ -75,7 +75,7 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
  *    - Angular difference between the directions of the reprojected refSegment and the 2D curSegment
  *    - length of the overlap between the two segments
 **/ 
-std::pair<bool,float> isMatched(const Segment3D& curSegment,
+std::pair<bool,Eigen::Vector4f> isMatched(const Segment3D& curSegment,
                                 const Segment3D& refSegment,
                                 const Pose3& transformWF,
                                 const int w,
@@ -127,6 +127,13 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
                 const std::map<int, int>& mapSegment,
                 std::vector<std::vector<int>>& finalLines,
                 Hash_Map<IndexT, MyLine>& allLines);
+
+std::pair<Vec3, Vec3> extractFinalEndpoints(const Eigen::Vector6d& lineModel,
+                          const std::vector<std::pair<int, Segment3D>>& allLines,
+                           const std::vector<int>& segmentIds,
+                        std::map<int, int>& mapIdx,
+                           const Mat3& K,
+                           const SfM_Data& sfmData);
 }
 }
 #endif

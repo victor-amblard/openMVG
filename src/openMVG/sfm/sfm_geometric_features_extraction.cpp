@@ -250,7 +250,7 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
     return result;
 }
 //Checked
-std::pair<bool,float> isMatched(const Segment3D& curSegment,
+std::pair<bool,Eigen::Vector4f> isMatched(const Segment3D& curSegment,
                                 const Segment3D& refSegment,
                                 const Pose3& transformWF,
                                 const int w,
@@ -293,14 +293,15 @@ std::pair<bool,float> isMatched(const Segment3D& curSegment,
     Vec3 dirRef3 = Vec3(refSegment.endpoints3D.second - refSegment.endpoints3D.first).normalized();
     Vec3 vecDist3((curSegment.endpoints3D.first + curSegment.endpoints3D.second)/2 - (refSegment.endpoints3D.first + refSegment.endpoints3D.second)/2);
     double orthoDist = vecDist3.norm () * sqrt(1 - pow(vecDist3.dot(dirRef3)/vecDist3.norm(),2.))/PARAMS::tOrthoDistMatch;
-    float scoreF;
+    // std::cerr << "3D distance between centers: " << vecDist3.norm() << ", " << vecDist3.dot(dirRef3)/vecDist3.norm()<< " " << orthoDist << std::endl;
+    // PRINT_VECTOR(vecDist3, 3)
+    // PRINT_VECTOR(dirRef3, 3)
     bool valid;
 
     Eigen::Vector4f score(totalDistance, relTheta, distFeature, orthoDist);
-    scoreF = score.norm();
-    valid = (score(0) < 1) && (score(1) < 1) && (score(2) < 1) && (score(3) < 1) && (!completeVisibility || (overlap > PARAMS::tMaxRelativeOverlap));
+    valid = (score(0) < 1) && (score(1) < 1) && (score(2) < 1) && (score(3) < 1);// && (!completeVisibility || (overlap > PARAMS::tMaxRelativeOverlap));
 
-    return std::make_pair(valid, scoreF) ;
+    return std::make_pair(valid, score) ;
 }
 
 // General Idea:
@@ -391,8 +392,9 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
 {
 
     int nViews = sfm_data.GetViews().size();
-    const int MAX_SCORE = 100;
+    const float MAX_SCORE = 100;
     const float EPS_F = 0.0001;
+
     std::cerr << "There are " << allSegments.size() << " 3D segments in the dataset" << std::endl;
 
     std::sort(allSegments.begin(), allSegments.end(), segmentComp); //sort by desc length
@@ -418,8 +420,6 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
         int curIdSegment = allSegments.at(iSegment).first;
         const Segment3D& curSegment(allSegments.at(iSegment).second);
         curSegment.debug(curIdSegment);
-        
-        const cv::Mat img = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(curSegment.view)->s_Img_path);
 
         std::vector<std::pair<int, bool>> validViewsReprojection = getViewsSegment(curSegment, sfm_data, K);
 
@@ -435,7 +435,8 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
 
             if (nView != curSegment.view) //We want to avoid to have twice the same view in the same set
             {
-                float minScore = 100;
+                std::pair<float, Eigen::Vector4f> minScore = std::make_pair(MAX_SCORE, Eigen::Vector4f(0,0,0,0));
+
                 int minSegmentId = 0;
                 bool match = false;
 
@@ -447,13 +448,14 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                     auto score = isMatched(allSegments.at(mapSegment[segmentId]).second, curSegment, curTF, 
                     width, height, validViewsReprojection.at(iView).second, K);
 
+                    // PRINT_VECTOR(score.second,4);
                     if (score.first)
                     {
                         match = true;
-                        // std::cerr << "Match! (" << curIdSegment << "," << segmentId << ")" << std::endl;
-                        if (score.second < minScore)
+                        std::cerr << "Match! (" << curIdSegment << "," << segmentId << ")" << std::endl;
+                        if (score.second.norm() < minScore.first)
                         {
-                            minScore = score.second;
+                            minScore = std::make_pair(score.second.norm(), score.second);
                             minSegmentId = segmentId;
                         }
                     }
@@ -461,23 +463,32 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
 
                 if (match){
                     std::cerr << curSegment.featureDistance(allSegments.at(mapSegment[minSegmentId]).second) << std::endl;
-                    // std::cerr << "Segment " << curIdSegment << "(" << curSegment.view << ") corresponds to segment " << minSegmentId << "(" << nView
-                    // << ")" << std::endl;
-                    #pragma omp critical
+                    std::cerr << "Segment " << curIdSegment << "(" << curSegment.view << ") corresponds to segment " << minSegmentId << "(" << nView
+                    << ")" << std::endl;
+                    // #pragma omp critical
                     joinSets(curIdSegment, minSegmentId, clustersSegment, rank);
-                    DataAssociation da(curIdxDA, curIdSegment, minSegmentId, minScore);
+                    DataAssociation da(curIdxDA, curIdSegment, minSegmentId, minScore.second);
                     allDataAssociations.at(curIdSegment).push_back(curIdxDA);
                     mapDataAssociations.insert({curIdxDA, da});
                     ++curIdxDA;
+                    /** 
+                    const cv::Mat img = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(curSegment.view)->s_Img_path);
+                    const cv::Mat img2 = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(allSegments.at(mapSegment[minSegmentId]).second.view)->s_Img_path);
+                    cv::line(img, cv::Point(curSegment.endpoints2D.first(0), curSegment.endpoints2D.first(1)), cv::Point(curSegment.endpoints2D.second(0), curSegment.endpoints2D.second(1)), cv::Scalar(0,0,255),2);
+                    cv::line(img2, cv::Point(allSegments.at(mapSegment[minSegmentId]).second.endpoints2D.first(0), allSegments.at(mapSegment[minSegmentId]).second.endpoints2D.first(1)), cv::Point(allSegments.at(mapSegment[minSegmentId]).second.endpoints2D.second(0), allSegments.at(mapSegment[minSegmentId]).second.endpoints2D.second(1)), cv::Scalar(0,0,255),2);
+                    
+                    cv::putText(img, "Img "+std::to_string(minScore.second(0)), cv::Point(30,30), 3, 1, cv::Scalar(0,0,255), 3);
+                    cv::putText(img, "Img "+std::to_string(minScore.second(1)), cv::Point(30,100), 3, 1, cv::Scalar(0,0,255), 3);
+                    cv::putText(img, "Img "+std::to_string(minScore.second(2)), cv::Point(30,150), 3, 1, cv::Scalar(0,0,255), 3);
+                    cv::putText(img, "Img "+std::to_string(minScore.second(3)), cv::Point(30,200), 3, 1, cv::Scalar(0,0,255), 3);
+                    // cv::imshow("["+std::to_string(curIdSegment)+"] - View # "+std::to_string(curSegment.view), img);
+                    std::vector<cv::Mat> matchVec = {img, img2};
+                    ShowManyImages("DA", 2, matchVec);
+                    **/ 
                 }
             }
         
         }
-        /** 
-        cv::line(img, cv::Point(curSegment.endpoints2D.first(0), curSegment.endpoints2D.first(1)), cv::Point(curSegment.endpoints2D.second(0), curSegment.endpoints2D.second(1)), cv::Scalar(255,255,255));
-        cv::imshow("["+std::to_string(curIdSegment)+"] - View # "+std::to_string(curSegment.view), img);
-        cv::waitKey(0);
-        **/ 
     }
     Hash_Map<int, int> daIdx2ConsecutiveIdx;
     Hash_Map<int, int> daIdx2ConsecutiveIdxR;
@@ -527,7 +538,7 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
     }
     fileO.close();
 
-    std::system("cd /home/victor/Data/Stages/MIT/clear/CLEAR_Python/ && python3 readFromFile.py");
+    std::system("cd /home/victor/Data/Stages/MIT/clear/CLEAR_Python/ && rm -f ../test_output.txt && python3 readFromFile.py");
 
     for (unsigned int i=0;i<allSegments.size();++i){
         clustersSegment.at(i) = i;
@@ -834,7 +845,7 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
     seg.setOptimizeCoefficients(true);
     seg.setModelType(pcl::SACMODEL_LINE);
     seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(1);
+    seg.setDistanceThreshold(2);
     seg.setMaxIterations(50);
     int i(0);
     for (auto it=finalLines.begin();it!=finalLines.end();){
@@ -885,6 +896,63 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
         }
 
     }
+}
+ Endpoints3 extractFinalEndpoints(const Eigen::Vector6d& lineModel,
+                                            const std::vector<std::pair<int, Segment3D>>& allSegments,
+                                            const std::vector<int>& segmentIds,
+                                            std::map<int, int>& mapIdx,
+                                            const Mat3& K,
+                                            const SfM_Data& sfmData)
+
+{
+    MyLine curLine(lineModel);
+
+    float tMin = std::numeric_limits<float>::max();
+    float tMax = -std::numeric_limits<float>::max();
+
+    // Since all poses have changed, we need to recompute the 3D endpoints
+    // The new endpoint will be the closest point to the intersection between the epipolar line and the infinite line
+    int i(0);
+    Vec3 refPoint;
+    for (const auto& lineCorrespondence: segmentIds)
+    {
+          IndexT idxSegment = lineCorrespondence;
+          const Segment3D & seg = allSegments.at(mapIdx[idxSegment]).second;
+          const geometry::Pose3& curPose = sfmData.GetPoseOrDie(sfmData.GetViews().at(seg.view).get());
+          Mat34 projMatrix;
+        openMVG::P_From_KRt(K, curPose.rotation(), curPose.translation(), &projMatrix);
+        Mat4 projMatrix4 = Mat4::Identity();
+        projMatrix4.block(0,0,3,4) = projMatrix;
+
+          Vec2 sEndpoint2 = seg.endpoints2D.first;
+          Vec2 eEndpoint2 = seg.endpoints2D.second;
+
+          Vec3 sEndpoint3  = getEndpointLocation(curLine, sEndpoint2, K, projMatrix4);
+          Vec3 eEndpoint3  = getEndpointLocation(curLine, eEndpoint2, K, projMatrix4);
+          
+          std::cerr << "Previous endpoints" << std::endl;
+          std::cerr << seg.endpoints3D.first << std::endl;
+          std::cerr << seg.endpoints3D.second << std::endl;
+          std::cerr << "New endpoints" << std::endl;
+          std::cerr << sEndpoint3 << std::endl;
+          std::cerr << eEndpoint3 << std::endl;
+
+          if (i == 0)
+            refPoint = sEndpoint3;
+
+          float tS = getParameter3(sEndpoint3, refPoint, curLine);
+          float tE = getParameter3(eEndpoint3, refPoint, curLine);
+
+          tMin = std::min(std::min(tMin, tS), tE);
+          tMax = std::max(std::max(tMax, tS), tE);
+
+          ++i;
+    }
+
+    Vec3 mEndpoint = refPoint + tMin * curLine.getDirection().normalized();
+    Vec3 MEndpoint = refPoint + tMax * curLine.getDirection().normalized();
+
+    return std::make_pair(mEndpoint, MEndpoint);
 }
 }
 }

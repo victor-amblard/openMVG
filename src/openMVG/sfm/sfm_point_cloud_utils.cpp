@@ -47,46 +47,7 @@ void visualizePointCloud(PointCloudPtr<pcl::XPointXYZ> pointCloud)
       viewer->spinOnce (100);
     };
 }
-Vec3 getEndpointLocation(const MyLine& l,
-                         const Vec2 pt,
-                         const Mat3& K){
 
-
-    Vec3 result = Vec3::Zero();
-
-    CGAL_K::Point_3 origin((CGAL_K::RT)0, (CGAL_K::RT)0, (CGAL_K::RT)0);
-    Vec3 pointCamera = K.inverse() * pt.homogeneous(); //transform image -> camera
-    
-    CGAL_K::Point_3 endpointProjCamera((CGAL_K::RT)pointCamera(0), (CGAL_K::RT)pointCamera(1), (CGAL_K::RT)pointCamera(2));
-    CGAL_K::Line_3 epipolarLine(origin, endpointProjCamera);
-    
-    CGAL_K::Point_3 cPoint3d((CGAL_K::RT)l.pointDirRep(0), (CGAL_K::RT)l.pointDirRep(1), (CGAL_K::RT)l.pointDirRep(2));
-    CGAL_K::Direction_3 cDirLine((CGAL_K::RT)l.pointDirRep(3), (CGAL_K::RT)l.pointDirRep(4), (CGAL_K::RT)l.pointDirRep(5));
-    CGAL_K::Line_3 lineEqn(cPoint3d, cDirLine);
-    
-
-    if (CGAL::do_intersect(epipolarLine, lineEqn)){
-        auto resultInter = CGAL::intersection(epipolarLine, lineEqn);
-        if (const CGAL_K::Point_3* p = boost::get<CGAL_K::Point_3>(&*resultInter)){
-            result = Vec3(CGAL::to_double(p->x()), CGAL::to_double(p->y()), CGAL::to_double(p->z()));
-        }else{
-            std::cerr << "Epipolar line is // to 3D line" << std::endl;
-        }
-    }else{
-        //We have 2 skew lines: https://en.wikipedia.org/wiki/Skew_lines
-        // v1 = p1 + t*d1, v2 = p2+t*d2
-        // n = d1 x d2, n1 = d1 x n
-        // c2 = p2 + (p1 - p2).n1 / d2.n1 * d2
-        CGAL_K::Vector_3 cp = CGAL::cross_product(epipolarLine.to_vector(), lineEqn.to_vector());
-        cp = cp/cp.squared_length();
-        CGAL_K::Vector_3 normal1 = CGAL::cross_product(epipolarLine.to_vector(), cp);
-        CGAL_K::Vector_3 normal2 = CGAL::cross_product(cDirLine.to_vector(), cp);
-        CGAL_K::RT coeff =  CGAL::scalar_product(origin - cPoint3d ,normal1) / CGAL::scalar_product(cDirLine.to_vector(), normal1);
-        CGAL_K::Point_3 closestPt2Epipolar = cPoint3d + coeff*cDirLine.to_vector();
-        result = Vec3(CGAL::to_double(closestPt2Epipolar.x()), CGAL::to_double(closestPt2Epipolar.y()), CGAL::to_double(closestPt2Epipolar.z()));
-    }
-    return result;
-}
 Hash_Map<IndexT, PointCloudXYZ::Ptr> readAllClouds(const SfM_Data& sfm_data)
 {
     Hash_Map<IndexT, PointCloudXYZ::Ptr> results;
@@ -212,7 +173,7 @@ void associateEdgePoint2Line(const View * v,
     if (visualization){
         for (unsigned int i = 0 ; i < sLine ; ++i)
             cv::line(img, cv::Point(allLines.at(i).first(0),allLines.at(i).first(1)), cv::Point(allLines.at(i).second(0), allLines.at(i).second(1)),
-            cv::Scalar(200,200,200));
+            cv::Scalar(200,200,200),2);
     }
 
     std::vector<std::vector<int>> points2lines(sLine);
@@ -343,7 +304,7 @@ void associateEdgePoint2Line(const View * v,
     if (visualization){
         for (size_t i=0;i<visibility.size();++i)
             if (!visibility.at(i))
-                cv::circle(img, cv::Point(edgesInFov.at(i).second(0), edgesInFov.at(i).second(1)), 1, cv::Scalar(175,175,175));
+                cv::circle(img, cv::Point(edgesInFov.at(i).second(0), edgesInFov.at(i).second(1)), 1, cv::Scalar(175,175,175), 2);
     }
 
     std::cerr << "Before final merge there were : " <<  count << " lines" << std::endl;
@@ -526,7 +487,7 @@ void associateEdgePoint2Line(const View * v,
     std::cerr << sLine << " 2D segments were detected in the image and " << count << " will be used" << std::endl;
     if (visualization){
         cv::imshow("test",img);
-        cv::waitKey(300);
+        cv::waitKey(100);
     }
 
     // **/
@@ -563,9 +524,9 @@ std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const
             for(int k=-PARAMS::nNeighborsSmoothness;k<=PARAMS::nNeighborsSmoothness;++k){
                 sum += rangeMap.at<float>(i,j+k);
             }
-            if (rangeMap.at<float>(i,j) >= MAX_RANGE-0.001)  //Avoid infinite scores
-                resultEdge.at<float>(i,j) = 0;
-            else
+            // if (rangeMap.at<float>(i,j) >= MAX_RANGE-0.001)  //Avoid infinite scores
+            // resultEdge.at<float>(i,j) = 0;
+            // else
                 resultEdge.at<float>(i,j) = std::fabs(sum) / (2*PARAMS::nNeighborsSmoothness*rangeMap.at<float>(i,j));
         }
     }

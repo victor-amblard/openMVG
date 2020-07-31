@@ -318,12 +318,22 @@ bool Bundle_Adjustment_Ceres::Adjust
       }
     }
   }
-  
+  /*
+  Mat3 rot_ ;
+  double scale = 7.155857644606538;
+  rot_ << -0.98851733, -0.00452436,  0.15103979,-0.15077758, -0.03648565, -0.98789418,0.00998038, -0.99932394,  0.03538453;
+  Vec3 center_(13.46274022/scale, -45.95580144/scale, -0.36856478/scale);
+  geometry::Pose3 pose(rot_, center_);
+
+  geometry::Similarity3 sim(pose, scale);
+  openMVG::sfm::ApplySimilarity(sim, sfm_data);
+  */
   Hash_Map<IndexT, MyLine> all_3d_lines;
   
   std::vector<std::pair<int, Segment3D>> allSegments;
   std::vector<std::vector<int>> all_clustered_segments;
-      std::map<int, int> mapIdx;
+  std::map<int, int> mapIdx;
+  Mat3 K;
 
   if (options.use_lines_opt){
     std::cout << " Using lines opt" << std::endl;
@@ -336,6 +346,8 @@ bool Bundle_Adjustment_Ceres::Adjust
                      0.70414167, -0.00493623, -0.71004236, -0.05289342,  
                      0.01399269, -0.99968519,  0.02082624, -0.04699275,
                         0.        ,  0.        ,  0.,  1.;
+    Eigen::Matrix4d imu2camera;
+    imu2camera << 0 ,0,1,0,-1,0,0,0,0,-1,0,0,0,0,0,1;
 
     std::vector<std::vector<IndexT>> lines_2d_per_image;
     lines_2d_per_image.reserve(sfm_data.GetViews().size());
@@ -345,7 +357,6 @@ bool Bundle_Adjustment_Ceres::Adjust
 
     IndexT curIdxLine(0);
     int curKey(0);
-    Mat3 K;
     std::vector<std::vector<LBD::Descriptor>> allDescriptors;
 
     for(auto view_it:sfm_data.views){
@@ -393,9 +404,9 @@ bool Bundle_Adjustment_Ceres::Adjust
     std::cerr << "Fusing point clouds" << std::endl;
     PointCloudPtr<pcl::XPointXYZ> mergedCloud(new pcl::PointCloud<pcl::XPointXYZ>); 
     Hash_Map<IndexT, PointCloudXYZ::Ptr> allLidarClouds = openMVG::sfm::readAllClouds(sfm_data);
-    // openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera.inverse(), mergedCloud);
+    openMVG::sfm::fusePointClouds(allLidarClouds,sfm_data.poses, lidar2camera.inverse(), mergedCloud);
     // std::cerr << "Fused point clouds " << std::endl;
-    // openMVG::sfm::visualizePointCloud(mergedCloud);
+    openMVG::sfm::visualizePointCloud(mergedCloud);
 
     // Get all correspondences
     std::cerr << "Looking for correspondences" << std::endl;
@@ -531,7 +542,7 @@ bool Bundle_Adjustment_Ceres::Adjust
 
     for (const auto & obs_it : obs)
     {
-      // Build the residual block corresponding to the track observation:
+      // Build the residual getEndpointLocationblock corresponding to the track observation:
       const View * view = sfm_data.views.at(obs_it.first).get();
 
       // Each Residual block takes a point and a camera as input and outputs a 2
@@ -644,7 +655,8 @@ bool Bundle_Adjustment_Ceres::Adjust
           IndexT curIntrId = sfm_data.views.at(curViewId)->id_intrinsic;
 
           Eigen::Matrix<double,4,1> cur_2d_line(seg.endpoints2D.first(0), seg.endpoints2D.first(1),seg.endpoints2D.second(0),seg.endpoints2D.second(1));
-          // testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(indexLine)[0], curLine,sfm_data.views.at(curViewId).get());
+          double cur_2d_line_array[4] = {seg.endpoints2D.first(0), seg.endpoints2D.first(1),seg.endpoints2D.second(0),seg.endpoints2D.second(1)};
+          testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(indexLine)[0], cur_2d_line_array,sfm_data,curViewId);
 
           ceres::CostFunction * cost_function_lines = 
           new ceres::AutoDiffCostFunction<LineReprojectionConstraintCostFunction,2,3,6,6>(
@@ -780,11 +792,17 @@ bool Bundle_Adjustment_Ceres::Adjust
       }
     }
     if (options.line_opt != Line_Parameter_Type::NONE){
+      std::vector<Endpoints3> allRefinedEndpoints;
+
       for(auto & line_it : all_3d_lines){
         const IndexT indexLine = line_it.first;
         Eigen::Vector6d line_refined(map_lines.at(indexLine)[0],map_lines.at(indexLine)[1],map_lines.at(indexLine)[2],
         map_lines.at(indexLine)[3],map_lines.at(indexLine)[4],map_lines.at(indexLine)[5]);
         // std::cout << " New line : " << line_refined << std::endl;
+        Endpoints3 refinedEndpoints = extractFinalEndpoints(line_refined, allSegments, all_clustered_segments.at(indexLine), mapIdx, K, sfm_data);
+        std::cerr << " ********** " << std::endl;
+        std::cerr << refinedEndpoints.first << "\n" << refinedEndpoints.second << std::endl;
+        allRefinedEndpoints.push_back(refinedEndpoints);
 
         for (const auto& lineCorrespondence: all_clustered_segments.at(indexLine))
         {
@@ -798,9 +816,24 @@ bool Bundle_Adjustment_Ceres::Adjust
           double curLine[4] = {cur_2d_line.first(0), cur_2d_line.first(1), cur_2d_line.second(0), cur_2d_line.second(1)};
 
           // testLineReprojectionPlucker(&map_intrinsics.at(curIntrId)[0], &map_poses.at(curPoseId)[0],&map_lines.at(indexLine)[0], curLine,sfm_data.views.at(curViewId).get());
-              
+          std::string logFn = stlplus::create_filespec(sfm_data.s_root_path, "segments.txt");
+          std::ofstream fileO;
+          fileO.open(logFn);
+          
+          for (unsigned int iSeg = 0; iSeg < allRefinedEndpoints.size(); ++iSeg){
+            Endpoints3 curEp = allRefinedEndpoints.at(iSeg);
+            for (int i = 0 ; i < 3 ; ++ i) 
+              fileO << curEp.first(i) << " ";
+            for (int i = 0 ; i < 3 ; ++ i) 
+              fileO << curEp.second(i) << " " ;
+            fileO << "\n";
+          }
+          
+          fileO.close();
           }
       }
+      //Log in a file all_clustered_segments.at(indexLine
+
     }
     
     // Structure is already updated directly if needed (no data wrapping)
