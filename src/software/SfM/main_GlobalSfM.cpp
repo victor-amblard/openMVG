@@ -99,6 +99,7 @@ int main(int argc, char **argv)
     std::cerr << s << std::endl;
     return EXIT_FAILURE;
   }
+    b_use_motion_priors = cmd.used('P');
 
   if (iRotationAveragingMethod < ROTATION_AVERAGING_L1 ||
       iRotationAveragingMethod > ROTATION_AVERAGING_L2 )  {
@@ -122,7 +123,7 @@ int main(int argc, char **argv)
   
   // Load input SfM_Data scene
   SfM_Data sfm_data;
-  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS), false)) {
+  if (!Load(sfm_data, sSfM_Data_Filename, ESfM_Data(VIEWS|INTRINSICS), b_use_motion_priors)) {
     std::cerr << std::endl
       << "The input SfM_Data file \""<< sSfM_Data_Filename << "\" cannot be read." << std::endl;
     return EXIT_FAILURE;
@@ -189,7 +190,6 @@ int main(int argc, char **argv)
 
   // Configure reconstruction parameters
   sfmEngine.Set_Intrinsics_Refinement_Type(intrinsic_refinement_options);
-  b_use_motion_priors = cmd.used('P');
   sfmEngine.Set_Use_Motion_Prior(b_use_motion_priors);
 
   // Configure motion averaging method
