@@ -257,18 +257,16 @@ void PRINT_VECTOR(const Eigen::VectorXf vector, int n){
 }
 Vec3 getEndpointLocation(const MyLine& l,
                          const Vec2 pt,
-                         const Mat3& K,
-                         const Mat4& projMat){
+                         const Mat3& K){
 
 
     Vec3 result = Vec3::Zero();
 
     CGAL_K::Point_3 origin((CGAL_K::RT)0, (CGAL_K::RT)0, (CGAL_K::RT)0);
-
-    Vec3 pointCamera = K.inverse() * pt.homogeneous(); //transform image -> camera
-    Vec3 pointWorld = (projMat.inverse() * pointCamera.homogeneous()).hnormalized(); //transform camera -> world (or camera --> camera) 
     
-    CGAL_K::Point_3 endpointProjCamera((CGAL_K::RT)pointWorld(0), (CGAL_K::RT)pointWorld(1), (CGAL_K::RT)pointWorld(2));
+    Vec3 pointCamera = K.inverse() * pt.homogeneous(); //transform image -> camera
+   
+    CGAL_K::Point_3 endpointProjCamera((CGAL_K::RT)pointCamera(0), (CGAL_K::RT)pointCamera(1), (CGAL_K::RT)pointCamera(2));
     CGAL_K::Line_3 epipolarLine(origin, endpointProjCamera);
     
     CGAL_K::Point_3 cPoint3d((CGAL_K::RT)l.pointDirRep(0), (CGAL_K::RT)l.pointDirRep(1), (CGAL_K::RT)l.pointDirRep(2));

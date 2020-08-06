@@ -897,12 +897,16 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
 
     }
 }
+/**
+ * Given a new line model (derived from the optimization) in world frame and a set of 2D segments associated to that line
+ * Returns the two 3D most likely line endpoints in world frame
+**/ 
  Endpoints3 extractFinalEndpoints(const Eigen::Vector6d& lineModel,
-                                            const std::vector<std::pair<int, Segment3D>>& allSegments,
-                                            const std::vector<int>& segmentIds,
-                                            std::map<int, int>& mapIdx,
-                                            const Mat3& K,
-                                            const SfM_Data& sfmData)
+                                const std::vector<std::pair<int, Segment3D>>& allSegments,
+                                const std::vector<int>& segmentIds,
+                                std::map<int, int>& mapIdx,
+                                const Mat3& K,
+                                const SfM_Data& sfmData)
 
 {
     MyLine curLine(lineModel);
@@ -916,31 +920,35 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
     Vec3 refPoint;
     for (const auto& lineCorrespondence: segmentIds)
     {
-          IndexT idxSegment = lineCorrespondence;
-          const Segment3D & seg = allSegments.at(mapIdx[idxSegment]).second;
-          const geometry::Pose3& curPose = sfmData.GetPoseOrDie(sfmData.GetViews().at(seg.view).get());
-          Mat34 projMatrix;
-        openMVG::P_From_KRt(K, curPose.rotation(), curPose.translation(), &projMatrix);
-        Mat4 projMatrix4 = Mat4::Identity();
-        projMatrix4.block(0,0,3,4) = projMatrix;
+        IndexT idxSegment = lineCorrespondence;
+        const Segment3D & seg = allSegments.at(mapIdx[idxSegment]).second;
+        const geometry::Pose3& curPose = sfmData.GetPoseOrDie(sfmData.GetViews().at(seg.view).get());
+        Mat4 world2camera = Mat4::Identity();
+        world2camera.block(0,0,3,3) = curPose.rotation();
+        world2camera.block(0,3,3,1) = curPose.translation();
+        
+        MyLine cameraLine = curLine.changeFrame(world2camera); //3d line in camera frame
 
-          Vec2 sEndpoint2 = seg.endpoints2D.first;
-          Vec2 eEndpoint2 = seg.endpoints2D.second;
+        Vec2 sEndpoint2 = seg.endpoints2D.first;
+        Vec2 eEndpoint2 = seg.endpoints2D.second;
 
-          Vec3 sEndpoint3  = getEndpointLocation(curLine, sEndpoint2, K, projMatrix4);
-          Vec3 eEndpoint3  = getEndpointLocation(curLine, eEndpoint2, K, projMatrix4);
-          
-          std::cerr << "Previous endpoints" << std::endl;
-          std::cerr << seg.endpoints3D.first << std::endl;
-          std::cerr << seg.endpoints3D.second << std::endl;
-          std::cerr << "New endpoints" << std::endl;
-          std::cerr << sEndpoint3 << std::endl;
-          std::cerr << eEndpoint3 << std::endl;
+        Vec3 sEndpoint3C  = getEndpointLocation(cameraLine, sEndpoint2, K); //get closest point in camera frame to the line
+        Vec3 eEndpoint3C  = getEndpointLocation(cameraLine, eEndpoint2, K);
+
+        Vec3 sEndpoint3  = (world2camera.inverse() * sEndpoint3C.homogeneous()).head(3); // camera --> world frame
+        Vec3 eEndpoint3  = (world2camera.inverse() * eEndpoint3C.homogeneous()).head(3);
+
+        std::cerr << "Previous endpoints" << std::endl;
+        std::cerr << seg.endpoints3D.first << std::endl;
+        std::cerr << seg.endpoints3D.second << std::endl;
+        std::cerr << "New endpoints" << std::endl;
+        std::cerr << sEndpoint3 << std::endl;
+        std::cerr << eEndpoint3 << std::endl;
 
           if (i == 0)
             refPoint = sEndpoint3;
 
-          float tS = getParameter3(sEndpoint3, refPoint, curLine);
+          float tS = getParameter3(sEndpoint3, refPoint, curLine); //Line's parametrization
           float tE = getParameter3(eEndpoint3, refPoint, curLine);
 
           tMin = std::min(std::min(tMin, tS), tE);
@@ -949,8 +957,8 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
           ++i;
     }
 
-    Vec3 mEndpoint = refPoint + tMin * curLine.getDirection().normalized();
-    Vec3 MEndpoint = refPoint + tMax * curLine.getDirection().normalized();
+    Vec3 mEndpoint = refPoint + tMin * curLine.getDirection();
+    Vec3 MEndpoint = refPoint + tMax * curLine.getDirection();
 
     return std::make_pair(mEndpoint, MEndpoint);
 }

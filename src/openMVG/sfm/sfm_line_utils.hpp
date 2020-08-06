@@ -123,8 +123,13 @@ class MyLine{
         Eigen::Vector6d pluckerVector;
         Eigen::Vector6d pointDirRep;
 public:
+        MyLine changeFrame(Mat4 transform) const{
+            Vec3 p1 = (transform * pointDirRep.head(3).homogeneous()).hnormalized();
+            Vec3 p2 = (transform * (pointDirRep.head(3) + pointDirRep.tail(3)).homogeneous()).hnormalized();
+            return MyLine(p1, p2);
+        }
         Vec3 getDirection(void) const{
-            return Vec3(pluckerMatrix(3,0), pluckerMatrix(3,1), pluckerMatrix(3,2));
+            return Vec3(pluckerMatrix(3,0), pluckerMatrix(3,1), pluckerMatrix(3,2)).normalized();
         }
         
         Vec3 getProjection(const Eigen::Matrix4d & projMat) const {
@@ -154,7 +159,7 @@ public:
             double normCst = pluckerVector.block(0,0,3,1).norm();
             Eigen::Vector4d closestPointH = pluckerMatrix * pluckerMatrix * Eigen::Vector4d(0,0,0,1); //[L]x[L]x\piinf
             pointDirRep.block(0,0,3,1) = closestPointH.hnormalized();
-            pointDirRep.block(3,0,3,1) = getDirection().normalized();
+            pointDirRep.block(3,0,3,1) = getDirection();
         }
     private:
         void setMatrixFromVector(void){
@@ -314,8 +319,7 @@ void PRINT_VECTOR(const Eigen::VectorXf vector, int n);
 
 Vec3 getEndpointLocation(const MyLine& l,
                          const Vec2 pt,
-                         const Mat3& K,
-                         const Mat4& projMat = Mat4::Identity());
+                         const Mat3& K);
 }
 }
 #endif

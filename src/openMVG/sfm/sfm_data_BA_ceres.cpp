@@ -800,8 +800,6 @@ bool Bundle_Adjustment_Ceres::Adjust
         map_lines.at(indexLine)[3],map_lines.at(indexLine)[4],map_lines.at(indexLine)[5]);
         // std::cout << " New line : " << line_refined << std::endl;
         Endpoints3 refinedEndpoints = extractFinalEndpoints(line_refined, allSegments, all_clustered_segments.at(indexLine), mapIdx, K, sfm_data);
-        std::cerr << " ********** " << std::endl;
-        std::cerr << refinedEndpoints.first << "\n" << refinedEndpoints.second << std::endl;
         allRefinedEndpoints.push_back(refinedEndpoints);
 
         for (const auto& lineCorrespondence: all_clustered_segments.at(indexLine))
