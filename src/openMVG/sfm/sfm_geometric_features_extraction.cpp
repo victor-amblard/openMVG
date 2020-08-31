@@ -24,6 +24,11 @@ void computeLinesNDescriptors(const std::string& filename,
         float startPointY = line[0].startPointY;
         float endPointX = line[0].endPointX;
         float endPointY = line[0].endPointY;
+        
+        // Remove short line segments 
+        if (pow((endPointY - startPointY),2.) + pow((endPointX - startPointX),2.) < pow(PARAMS::tMinLenLine,2.))
+            continue;
+
         auto endpoints2d = std::make_pair(Vec2(startPointX, startPointY), Vec2(endPointX, endPointY));
         allLinesImage.push_back(endpoints2d);
         std::vector<LBD::Descriptor> curDescriptors(line.size());
@@ -31,13 +36,9 @@ void computeLinesNDescriptors(const std::string& filename,
             curDescriptors.at(i) = line[i].descriptor;
         
         allDescriptors.push_back(curDescriptors);
-        // cv::line(img, cv::Point(startPointX, startPointY), cv::Point(endpointX, endpointY), cv::Scalar(255,255,255),2);
-
     }
-    // cv::imshow("test", img);
-    // cv::waitKey(0);
 }
-
+//Currently not used
 void processLinesLSD(const std::string& imgFilename,
                      std::vector<Endpoints2>& allLinesImage){
 
@@ -161,6 +162,16 @@ void processLinesLSD(const std::string& imgFilename,
     // cv::waitKey(0);
 
 }
+/**
+ * Give a 2D line equation and the dimensions of an image,
+ * returns the location of the 2D endpoints in the image
+ * ---+----------------
+ * |   \              |
+ * |    \             |
+ * |     \            |
+ * |      \           |
+ * --------+-----------
+ **/
 bool getBoundPoints(const Vec3& lineProj,
                   const int width,
                   const int height,
@@ -188,7 +199,14 @@ bool getBoundPoints(const Vec3& lineProj,
     }
 }
 
-//Checked
+/**
+ * Function that take a 3D segment, and computes the views in which 
+ * the segment can be considered to be in the field of view
+ *  1) Project the segment in the image plane using K and sfm_data 
+ *  2) Use the above function to compute its 2D endpoints in the image plane
+ *  3) If the segment is partially or entirely in the image, we consider that 
+ * the segment is in the field of view
+**/
 std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
                                                   const SfM_Data& sfm_data,
                                                   const Mat3& K)
@@ -205,7 +223,7 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
         
         const Pose3& transform = sfm_data.GetPoseOrDie(view_it.second.get());
         const Eigen::Matrix4d EigTransform = convertRTEigen(transform);
-
+        //Projection matrix (world frame --> image plane)
         geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
         Mat34 projMatrix;
         openMVG::P_From_KRt(K, pose.rotation(), pose.translation(), &projMatrix);
@@ -249,14 +267,18 @@ std::vector<std::pair<int, bool>> getViewsSegment(const Segment3D& segment,
 
     return result;
 }
-//Checked
+/**
+ * Given 2 3D segments: do these segments correspond to different 
+ * views of the same actual real-world segment?
+ * 4 criteria are used to address this question
+ **/
 std::pair<bool,Eigen::Vector4f> isMatched(const Segment3D& curSegment,
-                                const Segment3D& refSegment,
-                                const Pose3& transformWF,
-                                const int w,
-                                const int h,
-                                bool completeVisibility,
-                                const Mat3& K){
+                                        const Segment3D& refSegment,
+                                        const Pose3& transformWF,
+                                        const int w,
+                                        const int h,
+                                        bool completeVisibility,
+                                        const Mat3& K){
     
     Mat34 proj2Ref;
     openMVG::P_From_KRt(K, transformWF.rotation(), transformWF.translation(), &proj2Ref);
@@ -302,83 +324,6 @@ std::pair<bool,Eigen::Vector4f> isMatched(const Segment3D& curSegment,
     valid = (score(0) < 1) && (score(1) < 1) && (score(2) < 1) && (score(3) < 1);// && (!completeVisibility || (overlap > PARAMS::tMaxRelativeOverlap));
 
     return std::make_pair(valid, score) ;
-}
-
-// General Idea:
-// Detect a cycle A --> B --> .. --> A  [a --> b ---> ... --> c != a] and cut the edge that has the highest (=worst) score
-
-void detectNRemoveCycles(int idEdge,
-                        int p,
-                        int * color,
-                        std::pair<int, float> * par,
-                        std::vector<std::vector<std::pair<int, std::pair<int, float>>>>& adjaLst,
-                        std::map<int, int>& mapIdx,
-                        const  std::vector<std::pair<int, Segment3D>>& allSegments,
-                        float score,
-                        std::vector<std::pair<int,int>>& toErase){
-    
-    const float MAX_SCORE = 100;
-
-    int curView = allSegments.at(mapIdx[idEdge]).second.view;
-    if (color[curView] == -1)
-        return;
-    if (color[curView] != -1 && color[curView] != -2){
-        if (idEdge != color[curView]){
-            float scoreMaxi = score;
-            float prevScore = score;
-            int sMaxi = p;
-            int eMaxi = idEdge;
-
-            int cur = p;
-            // std::cerr << idEdge << " <--[" << score <<  "]-- " << cur ;
-            int previous = idEdge;
-            
-            bool cycleNotAlreadySeen = true;
-
-            while (allSegments.at(mapIdx[cur]).second.view != curView){
-                previous = cur;
-                cur = par[cur].first;
-                prevScore = par[cur].second;
-                // TODO: Change data structure for better time complexity
-                if (std::find(toErase.begin(), toErase.end(), std::make_pair(cur, previous)) != toErase.end()){
-                    cycleNotAlreadySeen = false;
-                    break;
-                }
-                // std::cerr << " <--[" << prevScore << "]-- " << cur;
-                if (prevScore > scoreMaxi){
-                    scoreMaxi = prevScore;
-                    eMaxi = previous;
-                    sMaxi = cur;
-                }
-            }
-            // std::cerr << std::endl;
-            // sMaxi = p;
-            // eMaxi = idEdge;
-            if (cycleNotAlreadySeen){
-                std::cerr << "Invalid cycle! I will cut " << "(" << sMaxi << "," << eMaxi <<")"<< std::endl;
-                for(auto it = adjaLst.at(sMaxi).begin(); it != adjaLst.at(sMaxi).end();){
-                    if ((*it).second.first == eMaxi){
-                        it = adjaLst.at(sMaxi).erase(it);
-                        toErase.push_back(std::make_pair(sMaxi, eMaxi));
-                        break;
-                    }else{
-                        ++it;
-                    }
-                }
-            }      
-
-        }
-        return;
-    }
-    
-    color[curView] = idEdge; //ongoing processing
-    par[idEdge] = std::make_pair(p, score);
-
-    for (auto elem: adjaLst.at(idEdge))
-        if (elem.second.first != par[idEdge].first && std::find(toErase.begin(), toErase.end(), std::make_pair(idEdge, elem.second.first)) == toErase.end())
-            detectNRemoveCycles(elem.second.first, idEdge, color, par, adjaLst, mapIdx, allSegments, elem.second.second, toErase);
-    
-    color[curView] = -1; //processed
 }
 
 //Checked
@@ -484,7 +429,7 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
                     // cv::imshow("["+std::to_string(curIdSegment)+"] - View # "+std::to_string(curSegment.view), img);
                     std::vector<cv::Mat> matchVec = {img, img2};
                     ShowManyImages("DA", 2, matchVec);
-                    **/ 
+                    // **/ 
                 }
             }
         
@@ -536,7 +481,7 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
         int n2 = daIdx2ConsecutiveIdx[da.idSegmentB];
         fileO << std::to_string(n1) << " " << std::to_string(n2) << "\n";
     }
-    fileO.close();
+    fileO.close();  
 
     std::system("cd /home/victor/Data/Stages/MIT/clear/CLEAR_Python/ && rm -f ../test_output.txt && python3 readFromFile.py");
 
@@ -569,89 +514,6 @@ void findCorrespondencesAcrossViews(const std::vector<std::string>& filenames,
         finalLines.at(idRoot).push_back(i);
     }
     
-
-    // Trim correspondence set
-    // Build an oriented weighted graph with edges = views, vertices = data association
-    // Only keep vertices with the lowest weight
-    /*
-    std::vector<std::pair<int, int>> toEraseDA;
-    
-    int allIndicesDA[nViews][nViews];
-    Eigen::MatrixXf adjMatrix;
-    
-    for (int iSet = 0 ; iSet < finalLines.size() ; ++iSet){
-        adjMatrix = Eigen::MatrixXf::Constant(nViews, nViews, MAX_SCORE);
-        
-        for (int i = 0 ; i < nViews ; ++i)
-            for(int j = 0 ; j < nViews ; ++j)
-                allIndicesDA[i][j] = 0;
-
-        for (auto segmentPreId : finalLines.at(iSet)){
-            int view1 = allSegments.at(mapSegment[segmentPreId]).second.view;
-
-            for(auto dataAssoc : allDataAssociations.at(segmentPreId)){                    
-                int view2 = allSegments.at(mapSegment[dataAssoc.second.first]).second.view;
-                if (adjMatrix(view1, view2) > MAX_SCORE - EPS_F){
-                    adjMatrix(view1, view2) = dataAssoc.second.second;
-                    allIndicesDA[view1][view2] = dataAssoc.first;
-                }else{
-                    // std::cerr << "Old value for: (" << view1 << "," << view2 <<") : " << adjMatrix(view1, view2) << ", new value: " << dataAssoc.second.second << std::endl;
-                    if (adjMatrix(view1, view2) > dataAssoc.second.second){
-                        int idxDA = allIndicesDA[view1][view2];
-                        toEraseDA.push_back(mapDataAssociations[idxDA]);
-                        allIndicesDA[view1][view2] = dataAssoc.first;
-                        // Remove previous data association
-
-                    } else {
-                        toEraseDA.push_back(mapDataAssociations[dataAssoc.first]);
-                        // Remove current data association
-                    }
-                }
-            }
-        }
-        
-        const int nEdges = finalLines.at(iSet).size();
-        int * color = new int [nViews];
-        std::pair<int, float> * par = new std::pair<int, float>[100000];
-        for (int i = 0 ; i < nViews ;++i)
-            color[i] = -2; //NOT SEEN
-        par[99999] = std::make_pair(99999, 0.f);
-        if (finalLines.at(iSet).size() > 0){
-            detectNRemoveCycles(finalLines.at(iSet).at(0), 99999,color, par, allDataAssociations, mapSegment, allSegments, 0, toEraseDA);
-            std::cerr << " --- " << std::endl;
-        } 
-        
-    }
-    */
-   /*
-    std::cerr << toEraseDA.size() << " incorrect data associations will be removed out of " << totalDA << std::endl;
-
-    for (auto result: toEraseDA){   
-        int r1 = root(result.first, clustersSegment);
-
-        Segment3D seg1 = allSegments.at(mapSegment[result.first]).second;
-        Segment3D seg2 = allSegments.at(mapSegment[result.second]).second;
-        std::cerr << "About to erase DA between segments " << mapSegment[result.first] << " (" << seg1.view << " ) and " << mapSegment[result.second] << "("<<seg2.view<<")"<<std::endl;
-        cv::Mat img1 = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(seg1.view)->s_Img_path);
-        cv::Mat img2 = cv::imread(sfm_data.s_root_path+"/"+sfm_data.GetViews().at(seg2.view)->s_Img_path);
-        cv::line(img1, cv::Point(seg1.endpoints2D.first(0),seg1.endpoints2D.first(1)), cv::Point(seg1.endpoints2D.second(0),seg1.endpoints2D.second(1)), cv::Scalar(0,0,255),5);
-        cv::line(img2, cv::Point(seg2.endpoints2D.first(0),seg2.endpoints2D.first(1)), cv::Point(seg2.endpoints2D.second(0),seg2.endpoints2D.second(1)), cv::Scalar(0,0,255), 5);
-        std::vector<cv::Mat> tmp_img = {img1, img2};
-        // ShowManyImages("Incorrect DA", 2, tmp_img);
-
-        auto it2Remove = std::find(finalLines.at(r1).begin(), finalLines.at(r1).end(), result.second);
-
-        if (it2Remove != finalLines.at(r1).end()) //TODO: Investigate why this sometimes happens (probably somethg wrong in the union/find)
-            finalLines.at(r1).erase(it2Remove);
-        
-        
-        auto it2RemoveB = std::find(finalLines.at(r1).begin(), finalLines.at(r1).end(), result.first);
-
-        if (it2RemoveB != finalLines.at(r1).end()) //TODO: Investigate why this sometimes happens (probably somethg wrong in the union/find)
-            finalLines.at(r1).erase(it2RemoveB);
-        
-    }
-    */
     for (auto it = finalLines.begin(); it!=finalLines.end();){
         std::cerr << "Cur line has " << it->size() << " views in sight" << std::endl;
         if (it->size() >= PARAMS::tMinViewsLine)
@@ -781,10 +643,8 @@ void testLineReprojectionPlucker(const double * const cam_intrinsics,
 
     Eigen::Matrix<double,4,4> projMat = Eigen::Matrix<double,4,4>::Zero();
     Eigen::Matrix<double,4,4> RT_mat =  Eigen::Matrix<double,4,4>::Identity();
-    RT_mat.block(0,0,3,3) = mat_r
-;
+    RT_mat.block(0,0,3,3) = mat_r;
     RT_mat.block(0,3,3,1) = cam_t;
-    std::cerr << RT_mat << std::endl;
     const Eigen::Matrix<double,3,4> Pmat = K * RT_mat.block(0,0,3,4);
     projMat.block(0,0,3,4) = Pmat;
     projMat(3,3) = double(1);
@@ -875,9 +735,9 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
                 resultInliers.at(idInlierSegment) += 1;
             }
             std::vector<int> toBeRemoved;
-            for (unsigned int i = 0 ; i < it->size() ; ++i){
-                if (resultInliers.at(i) != 2){
-                    toBeRemoved.push_back((*it)[i]);
+            for (unsigned int iInlier = 0 ; iInlier < it->size() ; ++iInlier){
+                if (resultInliers.at(iInlier) != 2){
+                    toBeRemoved.push_back((*it)[iInlier]);
                 }
             }
             std::cerr << "Will remove " << toBeRemoved.size() << " of the " << it->size() << " segments in the current cluster" << std::endl;
@@ -899,14 +759,14 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
 }
 /**
  * Given a new line model (derived from the optimization) in world frame and a set of 2D segments associated to that line
- * Returns the two 3D most likely line endpoints in world frame
+ * Returns the two 3D most likely line endpoints in world frame and all the views in which the segment is seen
 **/ 
- Endpoints3 extractFinalEndpoints(const Eigen::Vector6d& lineModel,
-                                const std::vector<std::pair<int, Segment3D>>& allSegments,
-                                const std::vector<int>& segmentIds,
-                                std::map<int, int>& mapIdx,
-                                const Mat3& K,
-                                const SfM_Data& sfmData)
+std::pair<Endpoints3, std::vector<int>> extractFinalEndpoints(const Eigen::Vector6d& lineModel,
+                                                            const std::vector<std::pair<int, Segment3D>>& allSegments,
+                                                            const std::vector<int>& segmentIds,
+                                                            std::map<int, int>& mapIdx,
+                                                            const Mat3& K,
+                                                            const SfM_Data& sfmData)
 
 {
     MyLine curLine(lineModel);
@@ -918,6 +778,9 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
     // The new endpoint will be the closest point to the intersection between the epipolar line and the infinite line
     int i(0);
     Vec3 refPoint;
+    std::vector<int> views;
+    views.reserve(segmentIds.size());
+
     for (const auto& lineCorrespondence: segmentIds)
     {
         IndexT idxSegment = lineCorrespondence;
@@ -938,16 +801,9 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
         Vec3 sEndpoint3  = (world2camera.inverse() * sEndpoint3C.homogeneous()).head(3); // camera --> world frame
         Vec3 eEndpoint3  = (world2camera.inverse() * eEndpoint3C.homogeneous()).head(3);
 
-        std::cerr << "Previous endpoints" << std::endl;
-        std::cerr << seg.endpoints3D.first << std::endl;
-        std::cerr << seg.endpoints3D.second << std::endl;
-        std::cerr << "New endpoints" << std::endl;
-        std::cerr << sEndpoint3 << std::endl;
-        std::cerr << eEndpoint3 << std::endl;
-
-          if (i == 0)
+          if (i == 0){
             refPoint = sEndpoint3;
-
+          }
           float tS = getParameter3(sEndpoint3, refPoint, curLine); //Line's parametrization
           float tE = getParameter3(eEndpoint3, refPoint, curLine);
 
@@ -955,12 +811,13 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
           tMax = std::max(std::max(tMax, tS), tE);
 
           ++i;
+          views.push_back(seg.view);
     }
 
     Vec3 mEndpoint = refPoint + tMin * curLine.getDirection();
     Vec3 MEndpoint = refPoint + tMax * curLine.getDirection();
 
-    return std::make_pair(mEndpoint, MEndpoint);
+    return std::make_pair(std::make_pair(mEndpoint, MEndpoint), views);
 }
 }
 }

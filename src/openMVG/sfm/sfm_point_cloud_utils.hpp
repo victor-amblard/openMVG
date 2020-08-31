@@ -51,9 +51,9 @@ bool fusePointClouds(const Hash_Map<IndexT, PointCloudXYZ::Ptr>& allClouds,
 
 
 // Utility function to visualize a point cloud
-void visualizePointCloud(PointCloudXYZ::Ptr pointCloud);
-void visualizePointCloud(PointCloudPtr<pcl::XPointXYZ> pointCloud);
-
+void visualizePointCloudImpl(PointCloudXYZ::Ptr pointCloud);
+void visualizePointCloudImpl(PointCloudPtr<pcl::XPointXYZ> pointCloud);
+void visualizePointCloud(pcl::visualization::PCLVisualizer::Ptr viewer);
 /**
  * Utility function to convert an openMVG pose representation (R,t) to a 4x4 matrix 
 */
@@ -88,7 +88,8 @@ void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud,
                         const std::vector<std::vector<int>>& finalLines,
                         const std::vector<std::pair<int, Segment3D>>& allSegments,
                        std::map<int, int>& mapIdx,
-                      const SfM_Data& sfm_data);
+                      const SfM_Data& sfm_data,
+                      Hash_Map<IndexT, MyLine>& allLines);
 }
 }
 

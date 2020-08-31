@@ -39,10 +39,11 @@ namespace PARAMS{
     const int tMinViewsLine(2); //Minimum number of views for a 3D line to be considered
     const double tOutlierMergeLines(0.7); //70% of the inliers of line A need to be inliers of lineA+lineB
     const double tDeltaAngle3d2d(7*M_PI/180); //max delta between 3d line reprojected and segment
-    const double tEdgeSmoothness(0.05);
-    const int nNeighborsSmoothness(3);
+    const double tEdgeSmoothness(0.0);
+    const int nNeighborsSmoothness(5);
     const float tMinLength3DSegment(1); 
-    const int tOrthoDistLineMerge(3); //max #pixels between 2 // lines for fusion 
+    const int tOrthoDistLineMerge(3); //max #pixels between 2 // lines for fusion
+    const int tMinLenLine(30); //in pixels
     
     /** LIDAR specs (OS1-64) **/
     const int nRings(64);
@@ -117,37 +118,52 @@ using VelodynePointCloud = pcl::PointCloud<pcl::PointXYZIRT>;
 using Endpoints2 = std::pair<Vec2, Vec2>;
 using Endpoints3 = std::pair<Vec3, Vec3>;
 
+//See https://en.wikipedia.org/wiki/Pl%C3%BCcker_coordinates for additional details
 class MyLine{
     public:
-        Eigen::Matrix4d pluckerMatrix;
-        Eigen::Vector6d pluckerVector;
-        Eigen::Vector6d pointDirRep;
+        Eigen::Matrix4d pluckerMatrix; //4x4 skew-symmetric matrix
+        Eigen::Vector6d pluckerVector; //(L_10, L_20, L_30, L_21, L_31, L_32)
+        Eigen::Vector6d pointDirRep; 
 public:
+        /**
+         * Transforms a line from a coordinate frame to another using a SE(3) matrix
+         * Returns a new line instance 
+        */
         MyLine changeFrame(Mat4 transform) const{
             Vec3 p1 = (transform * pointDirRep.head(3).homogeneous()).hnormalized();
             Vec3 p2 = (transform * (pointDirRep.head(3) + pointDirRep.tail(3)).homogeneous()).hnormalized();
             return MyLine(p1, p2);
         }
+
         Vec3 getDirection(void) const{
             return Vec3(pluckerMatrix(3,0), pluckerMatrix(3,1), pluckerMatrix(3,2)).normalized();
         }
-        
+        /**
+         * Projects a 3D line to an image plane
+         * The resulting vector corresponds to the 3 coefficients of the 2D line equation
+        */
         Vec3 getProjection(const Eigen::Matrix4d & projMat) const {
             Eigen::Matrix4d projPlucker = projMat * pluckerMatrix * projMat.transpose();
             Vec3 lineCoeff(projPlucker(2,1), projPlucker(0,2), projPlucker(1,0));
 
             return lineCoeff;
         }
-
+        double distanceFromLine(const Vec3& point){
+            Vec3 pointOnLine = pointDirRep.head(3); 
+            Vec3 res = (pointOnLine - point).cross(getDirection());
+            return res.norm();
+        }
+        // Initialization from 2 3D points
         MyLine(const Vec3 pA, const Vec3 pB){
             Eigen::Vector4d A = pA.homogeneous();
             Eigen::Vector4d B = pB.homogeneous();
 
             pluckerMatrix = A*B.transpose()-B*A.transpose();
-            pointDirRep.block(0,0,3,1) = pA;
-            pointDirRep.block(3,0,3,1) = (pB-pA).normalized();
+            pointDirRep.head(3) = pA;
+            pointDirRep.tail(3) = (pB-pA).normalized();
             setVectorFromMatrix();
         }
+        //Initialization from pcl coefficients (6D)
         MyLine(const pcl::ModelCoefficients& line) : MyLine(Vec3(line.values[0], line.values[1], line.values[2]), Vec3(line.values[0]+line.values[3], line.values[1]+line.values[4], line.values[2]+line.values[5]))
         {
             
@@ -185,6 +201,7 @@ public:
         }
     };
 
+// Same as above but finite 3D line: defined by its two 3D endpoints
 class Segment3D: public MyLine
 {
 public:
@@ -192,7 +209,9 @@ public:
     Endpoints3 endpoints3D;
     int view;
     std::vector<LBD::Descriptor> descriptors;    
-
+    /**
+     * Computes the L2 distance between 2 line band descriptors (useful for matching)
+    */
     double L2Norm(const LBD::Descriptor& v1, const LBD::Descriptor& v2) const{
         double sum = 0;
         for (unsigned int i = 0 ; i < v1.size() ; ++i)
@@ -200,11 +219,15 @@ public:
         
         return pow(sum, 1/2.);
     }
-
+    /**
+     * Return the length of the 3D segment
+    */
     double norm(void) const{
         return (endpoints3D.second - endpoints3D.first).norm();
     }
-
+    /**
+     * Computes the distance in feature space between two segments
+    **/
     double featureDistance(const Segment3D& other) const{ 
         double minDis, dis;
 
@@ -227,7 +250,9 @@ public:
         } 
         return minDis;
     }
-
+    /**
+     * The following two functions are utility functions for debugging purposes
+    **/
     void debug(int id) const {
         std::cerr << "~~~~~ Segment #" << id << " ~~~~~" << std::endl;
         std::cerr << "View: " << view << std::endl;
@@ -258,7 +283,8 @@ public:
         cv::imshow("Debug segment", img);
         cv::waitKey(0);
     }
- Segment3D(const pcl::ModelCoefficients& line, Endpoints2& endpoints_, Endpoints3& endpoints2_, int view_,
+    //Constructor
+    Segment3D(const pcl::ModelCoefficients& line, Endpoints2& endpoints_, Endpoints3& endpoints2_, int view_,
       std::vector<LBD::Descriptor> descs):MyLine(line), endpoints2D(endpoints_), endpoints3D(endpoints2_),view(view_), descriptors(descs){}
 
     bool operator<(const Segment3D& other) const {

@@ -128,12 +128,12 @@ void group3DLines(const std::vector<std::pair<int, Segment3D>>& allSegments,
                 std::vector<std::vector<int>>& finalLines,
                 Hash_Map<IndexT, MyLine>& allLines);
 
-std::pair<Vec3, Vec3> extractFinalEndpoints(const Eigen::Vector6d& lineModel,
-                          const std::vector<std::pair<int, Segment3D>>& allLines,
-                           const std::vector<int>& segmentIds,
-                        std::map<int, int>& mapIdx,
-                           const Mat3& K,
-                           const SfM_Data& sfmData);
+std::pair<Endpoints3, std::vector<int>> extractFinalEndpoints(const Eigen::Vector6d& lineModel,
+                                                            const std::vector<std::pair<int, Segment3D>>& allLines,
+                                                            const std::vector<int>& segmentIds,
+                                                            std::map<int, int>& mapIdx,
+                                                            const Mat3& K,
+                                                            const SfM_Data& sfmData);
 }
 }
 #endif

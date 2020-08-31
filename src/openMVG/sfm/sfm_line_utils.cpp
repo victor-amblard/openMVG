@@ -255,6 +255,10 @@ void PRINT_VECTOR(const Eigen::VectorXf vector, int n){
        std::cerr << vector(i) << "," ;
     std::cerr << "]" << std::endl;
 }
+/**
+ * Given a 3D line (in the camera frame) and a 2D point observed on an image
+ * Returns the closest 3D point from the epipolar line located on the 3D line
+**/
 Vec3 getEndpointLocation(const MyLine& l,
                          const Vec2 pt,
                          const Mat3& K){
@@ -282,7 +286,8 @@ Vec3 getEndpointLocation(const MyLine& l,
             std::cerr << "Epipolar line is // to 3D line" << std::endl;
         }
     }else{
-        //We have 2 skew lines: https://en.wikipedia.org/wiki/Skew_lines
+        // We have 2 skew lines l1 and l2: https://en.wikipedia.org/wiki/Skew_lines
+        // We look for the closest point from l2 on l1
         // v1 = p1 + t*d1, v2 = p2+t*d2
         // n = d1 x d2, n1 = d1 x n
         // c2 = p2 + (p1 - p2).n1 / d2.n1 * d2

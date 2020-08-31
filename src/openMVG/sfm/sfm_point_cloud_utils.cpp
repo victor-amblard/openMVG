@@ -16,14 +16,41 @@ bool readPointCloud(const std::string& filename,
     int success = pcl::io::loadPCDFile<pcl::PointXYZ>(filename, *result);
     return (success != -1);
 }
-
-void visualizePointCloud(PointCloudXYZ::Ptr pointCloud)
+/**
+ * Basic point cloud visualization using pcl::visualizaition::PCLVisualizer
+**/
+void visualizePointCloudImpl(PointCloudXYZ::Ptr pointCloud)
 {
-    ::pcl::visualization::PCLVisualizer::Ptr viewer (new ::pcl::visualization::PCLVisualizer ("3D Viewer"));
-    viewer->setBackgroundColor (0, 0, 0);
-      viewer->addPointCloud<pcl::PointXYZ> (pointCloud, "sample cloud");
+    const int pointSize = 3;
+    const std::string pcName = "sample cloud";
 
-    viewer->setPointCloudRenderingProperties (::pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+    pcl::visualization::PCLVisualizer::Ptr viewer (new ::pcl::visualization::PCLVisualizer ("3D Viewer"));
+    viewer->setBackgroundColor (0, 0, 0);
+    viewer->addPointCloud<pcl::PointXYZ> (pointCloud,  pcName);
+
+    visualizePointCloud(viewer);
+}
+/**
+ * Implementation of the above function for a different type
+**/
+void visualizePointCloudImpl(PointCloudPtr<pcl::XPointXYZ> pointCloud)
+{
+    const int pointSize = 3;
+    const std::string pcName = "sample cloud";
+
+    pcl::visualization::PCLVisualizer::Ptr viewer (new ::pcl::visualization::PCLVisualizer ("3D Viewer"));
+    viewer->setBackgroundColor (0, 0, 0);
+    viewer->addPointCloud<pcl::XPointXYZ> (pointCloud, pcName);
+
+    visualizePointCloud(viewer);
+}
+
+void visualizePointCloud(pcl::visualization::PCLVisualizer::Ptr viewer)
+{
+    const int pointSize = 3;
+    const std::string pcName = "sample cloud";
+
+    viewer->setPointCloudRenderingProperties (::pcl::visualization::PCL_VISUALIZER_POINT_SIZE, pointSize, pcName);
     viewer->addCoordinateSystem (1.0);
     viewer->initCameraParameters ();
 
@@ -32,22 +59,11 @@ void visualizePointCloud(PointCloudXYZ::Ptr pointCloud)
       viewer->spinOnce (100);
     };
 }
-void visualizePointCloud(PointCloudPtr<pcl::XPointXYZ> pointCloud)
-{
-    ::pcl::visualization::PCLVisualizer::Ptr viewer (new ::pcl::visualization::PCLVisualizer ("3D Viewer"));
-    viewer->setBackgroundColor (0, 0, 0);
-      viewer->addPointCloud<pcl::XPointXYZ> (pointCloud, "sample cloud");
-
-    viewer->setPointCloudRenderingProperties (::pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
-    viewer->addCoordinateSystem (1.0);
-    viewer->initCameraParameters ();
-
-   while (!viewer->wasStopped ())
-    {
-      viewer->spinOnce (100);
-    };
-}
-
+/**
+ * Using information in sfm_data.json, reads LIDAR scans 
+ * corresponding to images and stores them in a hashmap
+ * If the scan cannot be read, a nullptr is stored instead
+**/
 Hash_Map<IndexT, PointCloudXYZ::Ptr> readAllClouds(const SfM_Data& sfm_data)
 {
     Hash_Map<IndexT, PointCloudXYZ::Ptr> results;
@@ -58,18 +74,25 @@ Hash_Map<IndexT, PointCloudXYZ::Ptr> readAllClouds(const SfM_Data& sfm_data)
         if (!sfm_data.IsPoseAndIntrinsicDefined(v))
             continue;
         PointCloudXYZ::Ptr curCloud(new PointCloudXYZ);
-        //WARNING !!!
         std::string xFilename = stlplus::create_filespec(sfm_data.s_lidar_path, v->s_Lidar_path);
 
         if (!readPointCloud(xFilename, curCloud))
+        {
+            std::cerr << "Failed to read point cloud!" << std::endl;
             results.insert({v->id_view, nullptr});
+        }
         else
             results.insert({v->id_view, curCloud});
     }
 
     return results;
 }
-
+/**
+ * Transforms all point clouds to a common coordinate frame
+ * and merges them onto a single point cloud that is then
+ * downsampled using a voxel grid
+ * We keep track of the voxel density using a fourth field in addition to x,y,z
+**/
 bool fusePointClouds(const Hash_Map<IndexT, PointCloudXYZ::Ptr>& allClouds,
                      const Poses& poses,
                      const Eigen::Matrix4d& lid2cam,
@@ -124,13 +147,19 @@ bool fusePointClouds(const Hash_Map<IndexT, PointCloudXYZ::Ptr>& allClouds,
     }
     return true;
 }
-
+/**
+ * Given a point in the image plane + depth, and image dimensions, 
+ * return true if the point is in the field of view
+**/
 bool inFOV(const Vec3& p, int w, int h){
     return p(0) < w && p(1) < h && p(1) >= 0 && p(0) >= 0 && p(2) > 0;
 }
 
-
-std::vector<std::pair<uint32_t, Vec3>> getPointsInFov(PointCloudPtr<::pcl::PointXYZIRT> allPoints, 
+/**
+ * Returns points from a LIDAR scan that are located in the field of view of 
+ * the camera
+**/
+std::vector<std::pair<uint32_t, Vec3>> getPointsInFov(PointCloudPtr<pcl::PointXYZIRT> allPoints, 
                                                       int width, 
                                                       int height, 
                                                       const Mat3& K)
@@ -147,6 +176,10 @@ std::vector<std::pair<uint32_t, Vec3>> getPointsInFov(PointCloudPtr<::pcl::Point
     return result;
 }
 
+/**
+ * Takes a set of 2D lines (allLines) and a point cloud (inputCloud)
+ * Associates edge points in the FOV from input cloud to lines from allLines
+**/
 void associateEdgePoint2Line(const View * v,
                              const std::vector<Endpoints2>& allLines,
                              const VelodynePointCloud::Ptr inputCloud,
@@ -189,7 +222,7 @@ void associateEdgePoint2Line(const View * v,
     VelodynePointCloud::Ptr edgeCloud(new VelodynePointCloud);
 
     // Extract edge points from lidar point cloud
-    pcl::ExtractIndices<::pcl::PointXYZIRT> extract;
+    pcl::ExtractIndices<pcl::PointXYZIRT> extract;
     extract.setInputCloud (inputCloud);
     extract.setIndices (edgesIdx);
     extract.setNegative (false);
@@ -506,10 +539,15 @@ void associateEdgePoint2Line(const View * v,
     **/ 
     
 }
-
+//Comparator for edge points (score, [x,y])
 bool comparator ( const std::pair<double, std::pair<int, int>>& l, const std::pair<double, std::pair<int, int>>& r)
    { return l.first > r.first; }
 
+/**
+ * x = height ([0, 64] for OS-1), y = width ([0, 1024] for OS-1)
+ * S(x,y) = 1 /(|neighbors| * r(x,y)) * | \sum_{neighbors} r(x,y-j) - r(x,y) | 
+ * cf. LeGO-LOAM: https://github.com/RobustFieldAutonomyLab/LeGO-LOAM
+**/
 std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const cv::Mat& rangeMap, 
                                                                            const bool& visualization)
 {
@@ -562,7 +600,10 @@ std::vector<std::pair<double, std::pair<int, int>>> computeEdgeScoreOnLine(const
 
     return processedEdges;
 }
-
+/**
+ * Converts a Velodyne point cloud to a range image and then extracts
+ * edge points from the range image
+*/
 std::vector<int> projectPointCloud(const VelodynePointCloud::Ptr inputCloud, 
                                   const bool& visualization,
                                   const cv::Mat& img){
@@ -617,25 +658,37 @@ void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud,
                         const std::vector<std::vector<int>>& finalLines,
                         const std::vector<std::pair<int, Segment3D>>& allSegments,
                        std::map<int, int>& mapIdx,
-                       const SfM_Data& sfm_data)
+                       const SfM_Data& sfm_data,
+                         Hash_Map<IndexT, MyLine>& allLines)
 {
     
     const int colMultiplier(41);
 
-    /** 
+    // /** 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
     viewer->setBackgroundColor (0, 0, 0);
     viewer->addPointCloud<pcl::XPointXYZ> (mergedCloud, "sample cloud");
     viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "sample cloud");
     viewer->addCoordinateSystem (1.0);
     viewer->initCameraParameters ();
-    **/
+    // **/
     for (unsigned int i = 0 ; i < finalLines.size(); ++i)
     {
         cv::Scalar curColor(PARAMS::r[(colMultiplier * i)%255]*255, PARAMS::g[(colMultiplier * i) % 255]*255, PARAMS::b[(colMultiplier * i) % 255]*255);
-        // PointCloudXYZRGB::Ptr segmentsEndpoints(new PointCloudXYZRGB);   
+        PointCloudXYZRGB::Ptr segmentsEndpoints(new PointCloudXYZRGB);   
         std::vector<cv::Mat> allImgs;
+        
+        const MyLine& curLine(allLines.at(i));
+        Vec3 startLine = curLine.pointDirRep.head(3);
+        Vec3 dirLine = curLine.pointDirRep.tail(3);
+        PointCloudXYZRGB::Ptr lineEndpoints(new PointCloudXYZRGB);   
 
+        for (int iSample = -25; iSample < 25 ; ++iSample){
+            Vec3 pointOnLine = startLine + iSample * dirLine;
+            lineEndpoints->push_back(pcl::PointXYZRGB(pointOnLine.x(), pointOnLine.y(), pointOnLine.z(), 
+                curColor(0)*255, curColor(1)*255, curColor(2)*255));
+        }
+        
         for (unsigned int j = 0 ; j < finalLines.at(i).size() ; ++j){
             const Segment3D& curSeg = allSegments.at(mapIdx[finalLines.at(i).at(j)]).second;
             if (j<12){
@@ -647,30 +700,32 @@ void visualizeEndResult(PointCloudPtr<pcl::XPointXYZ> mergedCloud,
                 allImgs.push_back(curImg);
             }
             // Simulate 20 points on the line
-            /*
+            // /*
             for (int k = 0; k < 20; ++k){
                 Vec3 pointOnLine = curSeg.endpoints3D.first + float(k/20.) * (curSeg.endpoints3D.second - curSeg.endpoints3D.first);
                 segmentsEndpoints->push_back(pcl::PointXYZRGB(pointOnLine.x(), pointOnLine.y(), pointOnLine.z(), 
-                curColor.x()*255, curColor.y()*255, curColor.z()*255));
+                curColor(0)*255, curColor(1)*255, curColor(2)*255));
             }
-            */
+            // */
         }
-        if (allImgs.size() >= 4)
-            ShowManyImages("image", allImgs.size(), allImgs);
+        // if (allImgs.size() >= 4)
+            // ShowManyImages("image", allImgs.size(), allImgs);
 
-        /*
+        // /*
         viewer->addPointCloud<pcl::PointXYZRGB> (segmentsEndpoints, std::to_string(i));
-        viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, std::to_string(i));
+        viewer->addPointCloud<pcl::PointXYZRGB> (lineEndpoints, std::to_string(-i));
+        viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 4, std::to_string(i));
+        viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 6, std::to_string(-i));
         viewer->spinOnce (100);
         usleep(100000);
-        */
+        // */
     }
-    /*
+    // /*
     while (!viewer->wasStopped ()){
         viewer->spinOnce (100);
 
     };
-    */
+    // */
 }
 } // namespace sfm
 } // namespace openMVG
